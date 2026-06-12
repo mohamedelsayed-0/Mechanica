@@ -2,7 +2,7 @@
 
 Differentiable analytical and classical mechanics in PyTorch.
 
-Mechanica provides small, composable tools for Lagrangian systems, Hamiltonian
+Mechanica provides small (for now), composable tools for Lagrangian systems, Hamiltonian
 systems, Newtonian mechanics, trajectory diagnostics, and inverse parameter
 fitting.
 
@@ -45,7 +45,7 @@ residual = system.euler_lagrange_residual(q, qdot, qddot)
 print(residual.abs().max())
 ```
 
-## Scope
+## What we're focusing on right now
 
 - Euler-Lagrange and Hamilton equation residuals
 - energy, momentum, springs, gravity, and Newton residuals
