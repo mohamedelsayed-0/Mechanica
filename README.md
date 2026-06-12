@@ -9,7 +9,13 @@ fitting.
 ## Install
 
 ```bash
-pip install -e .
+pip install mechanica-torch
+```
+
+For local development:
+
+```bash
+pip install -e ".[dev]"
 ```
 
 ## Example
@@ -39,7 +45,8 @@ residual = system.euler_lagrange_residual(q, qdot, qddot)
 print(residual.abs().max())
 ```
 
-## What we're focusing on so far
+## Scope
+
 - Euler-Lagrange and Hamilton equation residuals
 - energy, momentum, springs, gravity, and Newton residuals
 - differentiable integrators
