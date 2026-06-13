@@ -2,9 +2,9 @@
 
 Differentiable analytical and classical mechanics in PyTorch.
 
-Mechanica provides small (for now), composable tools for Lagrangian systems, Hamiltonian
-systems, Newtonian mechanics, trajectory diagnostics, and inverse parameter
-fitting.
+Mechanica provides small (for now), composable tools for Lagrangian systems,
+Hamiltonian systems, Newtonian mechanics, trajectory diagnostics, and inverse
+parameter fitting.
 
 ## Install
 
@@ -47,17 +47,15 @@ print(residual.abs().max())
 
 ## What we're focusing on right now
 
-- Euler-Lagrange and Hamilton equation residuals
-- generalized momenta, Noether-style coordinate charges, and Poisson brackets
-- canonical transformation checks for phase-space maps
+- Euler-Lagrange and Hamilton residuals
+- generalized momenta and Noether-style charges
+- Poisson brackets and canonical transformation checks
 - energy, momentum, springs, gravity, and Newton residuals
 - differentiable integrators
 - inverse mechanics from trajectory data
 
-Mechanica is intentionally tensor-first. It does not try to be a symbolic
-algebra system; instead, it uses PyTorch autograd to inspect concrete
-Lagrangians, Hamiltonians, trajectories, observables, and phase-space
-transformations.
+Mechanica is tensor-first, not symbolic. It uses PyTorch autograd to inspect
+concrete systems and trajectories.
 
 ## Analytical structure
 
