@@ -48,6 +48,57 @@ print(residual.abs().max())
 ## What we're focusing on right now
 
 - Euler-Lagrange and Hamilton equation residuals
+- generalized momenta, Noether-style coordinate charges, and Poisson brackets
+- canonical transformation checks for phase-space maps
 - energy, momentum, springs, gravity, and Newton residuals
 - differentiable integrators
 - inverse mechanics from trajectory data
+
+Mechanica is intentionally tensor-first. It does not try to be a symbolic
+algebra system; instead, it uses PyTorch autograd to inspect concrete
+Lagrangians, Hamiltonians, trajectories, observables, and phase-space
+transformations.
+
+## Analytical structure
+
+```python
+import torch
+from mechanica import HamiltonianSystem, LagrangianSystem, canonical_transformation_residual
+
+m = torch.tensor(1.0)
+k = torch.tensor(4.0)
+
+def kinetic(q, qdot):
+    return 0.5 * m * (qdot * qdot).sum()
+
+def potential(q):
+    return 0.5 * k * (q * q).sum()
+
+lagrangian = LagrangianSystem(kinetic=kinetic, potential=potential)
+q = torch.tensor([[1.0, 0.0]])
+qdot = torch.tensor([[0.0, 2.0]])
+
+def rotation(q):
+    return torch.stack([-q[1], q[0]])
+
+angular_charge = lagrangian.noether_charge(q, qdot, rotation)
+symmetry_error = lagrangian.coordinate_symmetry_residual(q, qdot, rotation)
+
+def hamiltonian(q, p):
+    return 0.5 * (p * p).sum() / m + 0.5 * k * (q * q).sum()
+
+system = HamiltonianSystem(hamiltonian)
+
+def position(q, p):
+    return q[0]
+
+def momentum(q, p):
+    return p[0]
+
+canonical_relation = system.poisson_bracket(position, momentum, q[:, :1], qdot[:, :1])
+
+def phase_rotation(q, p):
+    return p, -q
+
+canonical_error = canonical_transformation_residual(phase_rotation, q, qdot)
+```

@@ -18,6 +18,9 @@ Mechanica should make mechanics differentiable and inspectable:
 - Hamiltonian mechanics
 - Newtonian particle mechanics
 - conservation laws
+- generalized momenta and coordinate symmetry residuals
+- Poisson brackets and observable time derivatives
+- canonical transformation residuals for phase-space maps
 - trajectory fitting
 - physics residuals as Torch losses
 - differentiable integrators
@@ -29,6 +32,9 @@ Mechanica should make mechanics differentiable and inspectable:
 - full finite-element engines
 - quantum mechanics
 - symbolic algebra systems
+- automatic symbolic symmetry discovery
+- full field-theory variation engines
+- Hamilton-Jacobi solvers before the tensor mechanics core is stable
 - engine-specific wrappers before the core API is stable
 
 ## First Real Use Case
@@ -38,5 +44,7 @@ Given observed coordinates, velocities, and accelerations, report:
 - Euler-Lagrange residual
 - energy drift
 - momentum drift
+- coordinate symmetry residual
+- Poisson bracket checks for conserved observables
 - best-fit physical parameters
 - sample locations where the assumed mechanics breaks
