@@ -10,6 +10,8 @@ import torch
 Tensor = torch.Tensor
 ScalarFn2 = Callable[[Tensor, Tensor], Tensor]
 ScalarFn1 = Callable[[Tensor], Tensor]
+VectorFn1 = Callable[[Tensor], Tensor]
+TransformFn = Callable[[Tensor, Tensor], tuple[Tensor, Tensor]]
 
 
 def _scalar(value: Tensor, name: str) -> Tensor:
@@ -42,6 +44,8 @@ def _safe_grad(
     create_graph: bool,
     retain_graph: bool = True,
 ) -> tuple[Tensor, ...]:
+    if not output.requires_grad:
+        return tuple(torch.zeros_like(inp) for inp in inputs)
     grads = torch.autograd.grad(
         output,
         inputs,
@@ -50,6 +54,59 @@ def _safe_grad(
         allow_unused=True,
     )
     return tuple(torch.zeros_like(inp) if grad is None else grad for inp, grad in zip(inputs, grads))
+
+
+def _vector_like(value: Tensor, reference: Tensor, name: str) -> Tensor:
+    if value.shape != reference.shape:
+        raise ValueError(
+            f"{name} must return shape {tuple(reference.shape)}, got {tuple(value.shape)}"
+        )
+    return value
+
+
+def _symplectic_matrix(dim: int, *, dtype: torch.dtype, device: torch.device) -> Tensor:
+    omega = torch.zeros((2 * dim, 2 * dim), dtype=dtype, device=device)
+    eye = torch.eye(dim, dtype=dtype, device=device)
+    omega[:dim, dim:] = eye
+    omega[dim:, :dim] = -eye
+    return omega
+
+
+def canonical_transformation_residual(
+    transform_fn: TransformFn,
+    q: Tensor,
+    p: Tensor,
+    *,
+    create_graph: bool = False,
+) -> Tensor:
+    """Return ``J.T @ omega @ J - omega`` for a phase-space transform.
+
+    A zero matrix means the local transformation preserves the canonical
+    symplectic form for the supplied samples.
+    """
+    (q_flat, p_flat), sample_shape = _flatten_state(q, p)
+    dim = q.shape[-1]
+    residuals = []
+
+    for q_i, p_i in zip(q_flat, p_flat):
+        z_var = torch.cat([q_i, p_i]).clone().requires_grad_(True)
+        q_var = z_var[:dim]
+        p_var = z_var[dim:]
+        next_q, next_p = transform_fn(q_var, p_var)
+        next_q = _vector_like(next_q, q_var, "transform_fn q")
+        next_p = _vector_like(next_p, p_var, "transform_fn p")
+        transformed = torch.cat([next_q, next_p])
+
+        jacobian_rows = []
+        for component in transformed:
+            (grad_z,) = _safe_grad(component, (z_var,), create_graph=create_graph)
+            jacobian_rows.append(grad_z)
+
+        jacobian = torch.stack(jacobian_rows, dim=0)
+        omega = _symplectic_matrix(dim, dtype=q.dtype, device=q.device)
+        residuals.append(jacobian.T @ omega @ jacobian - omega)
+
+    return torch.stack(residuals, dim=0).reshape(*sample_shape, 2 * dim, 2 * dim)
 
 
 @dataclass
@@ -127,6 +184,77 @@ class LagrangianSystem:
 
         return torch.stack(residuals, dim=0).reshape(*sample_shape, q.shape[-1])
 
+    def momentum(self, q: Tensor, qdot: Tensor, *, create_graph: bool = False) -> Tensor:
+        """Return generalized momenta ``dL/dqdot``."""
+        (q_flat, qdot_flat), sample_shape = _flatten_state(q, qdot)
+        momenta = []
+
+        for q_i, v_i in zip(q_flat, qdot_flat):
+            q_var = q_i.clone().requires_grad_(True)
+            v_var = v_i.clone().requires_grad_(True)
+            lagrangian = self.lagrangian(q_var, v_var)
+            (grad_v,) = _safe_grad(
+                lagrangian,
+                (v_var,),
+                create_graph=create_graph,
+            )
+            momenta.append(grad_v)
+
+        return torch.stack(momenta, dim=0).reshape(*sample_shape, q.shape[-1])
+
+    def noether_charge(
+        self,
+        q: Tensor,
+        qdot: Tensor,
+        generator: VectorFn1,
+        *,
+        create_graph: bool = False,
+    ) -> Tensor:
+        """Return ``p . xi(q)`` for an infinitesimal coordinate generator."""
+        momentum = self.momentum(q, qdot, create_graph=create_graph)
+        (q_flat, momentum_flat), sample_shape = _flatten_state(q, momentum)
+        charges = []
+
+        for q_i, p_i in zip(q_flat, momentum_flat):
+            xi = _vector_like(generator(q_i), q_i, "generator")
+            charges.append(torch.dot(p_i, xi))
+
+        return torch.stack(charges, dim=0).reshape(sample_shape)
+
+    def coordinate_symmetry_residual(
+        self,
+        q: Tensor,
+        qdot: Tensor,
+        generator: VectorFn1,
+        *,
+        create_graph: bool = False,
+    ) -> Tensor:
+        """Return the infinitesimal variation of ``L`` under ``delta q = xi(q)``."""
+        (q_flat, qdot_flat), sample_shape = _flatten_state(q, qdot)
+        residuals = []
+
+        for q_i, v_i in zip(q_flat, qdot_flat):
+            q_var = q_i.clone().requires_grad_(True)
+            v_var = v_i.clone().requires_grad_(True)
+            lagrangian = self.lagrangian(q_var, v_var)
+            grad_q, grad_v = _safe_grad(
+                lagrangian,
+                (q_var, v_var),
+                create_graph=create_graph,
+            )
+            xi = _vector_like(generator(q_var), q_var, "generator")
+
+            generator_rows = []
+            for component in xi:
+                (grad_xi,) = _safe_grad(component, (q_var,), create_graph=create_graph)
+                generator_rows.append(grad_xi)
+
+            generator_jacobian = torch.stack(generator_rows, dim=0)
+            delta_qdot = generator_jacobian @ v_var
+            residuals.append(torch.dot(grad_q, xi) + torch.dot(grad_v, delta_qdot))
+
+        return torch.stack(residuals, dim=0).reshape(sample_shape)
+
     def energy(self, q: Tensor, qdot: Tensor, *, create_graph: bool = False) -> Tensor:
         """Return the generalized energy ``qdot . dL/dqdot - L``."""
         (q_flat, qdot_flat), sample_shape = _flatten_state(q, qdot)
@@ -199,6 +327,57 @@ class HamiltonianSystem:
         """Return concatenated Hamilton equation residuals."""
         dqdt, dpdt = self.vector_field(q, p, create_graph=create_graph)
         return torch.cat([qdot - dqdt, pdot - dpdt], dim=-1)
+
+    def poisson_bracket(
+        self,
+        left: ScalarFn2,
+        right: ScalarFn2,
+        q: Tensor,
+        p: Tensor,
+        *,
+        create_graph: bool = False,
+    ) -> Tensor:
+        """Return the canonical Poisson bracket ``{left, right}``."""
+        (q_flat, p_flat), sample_shape = _flatten_state(q, p)
+        brackets = []
+
+        for q_i, p_i in zip(q_flat, p_flat):
+            q_var = q_i.clone().requires_grad_(True)
+            p_var = p_i.clone().requires_grad_(True)
+            left_value = _scalar(left(q_var, p_var), "left")
+            right_value = _scalar(right(q_var, p_var), "right")
+            left_q, left_p = _safe_grad(
+                left_value,
+                (q_var, p_var),
+                create_graph=create_graph,
+                retain_graph=True,
+            )
+            right_q, right_p = _safe_grad(
+                right_value,
+                (q_var, p_var),
+                create_graph=create_graph,
+                retain_graph=True,
+            )
+            brackets.append(torch.dot(left_q, right_p) - torch.dot(left_p, right_q))
+
+        return torch.stack(brackets, dim=0).reshape(sample_shape)
+
+    def time_derivative(
+        self,
+        observable: ScalarFn2,
+        q: Tensor,
+        p: Tensor,
+        *,
+        create_graph: bool = False,
+    ) -> Tensor:
+        """Return ``d observable / dt`` from its Poisson bracket with ``H``."""
+        return self.poisson_bracket(
+            observable,
+            self.hamiltonian,
+            q,
+            p,
+            create_graph=create_graph,
+        )
 
     def energy(self, q: Tensor, p: Tensor) -> Tensor:
         """Evaluate the Hamiltonian over a batch."""

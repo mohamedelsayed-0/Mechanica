@@ -1,6 +1,6 @@
 """PyTorch-native analytical and classical mechanics."""
 
-from .analytical import HamiltonianSystem, LagrangianSystem
+from .analytical import HamiltonianSystem, LagrangianSystem, canonical_transformation_residual
 from .classical import (
     angular_momentum,
     center_of_mass,
@@ -21,6 +21,7 @@ __all__ = [
     "HamiltonianSystem",
     "LagrangianSystem",
     "angular_momentum",
+    "canonical_transformation_residual",
     "center_of_mass",
     "energy_drift",
     "estimate_acceleration",
