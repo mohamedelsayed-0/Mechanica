@@ -12,6 +12,16 @@ from .classical import (
     newton_residual,
 )
 from .diagnostics import DiagnosticsReport, energy_drift, lagrangian_diagnostics, residual_stats
+from .dynamics import (
+    euler_state_step,
+    hamiltonian_dynamics,
+    join_state,
+    linearize,
+    rk4_state_step,
+    rollout,
+    second_order_dynamics,
+    split_state,
+)
 from .fit import FitResult, fit_lagrangian_residual
 from .integrators import euler_step, rk4_step, semi_implicit_euler_step, velocity_verlet_step
 from .kinematics import estimate_acceleration, estimate_velocity
@@ -29,16 +39,24 @@ __all__ = [
     "estimate_acceleration",
     "estimate_velocity",
     "euler_step",
+    "euler_state_step",
     "fit_lagrangian_residual",
+    "hamiltonian_dynamics",
     "hooke_spring_force",
+    "join_state",
     "kinetic_energy",
     "lagrangian_diagnostics",
     "linear_momentum",
+    "linearize",
     "near_surface_gravity_force",
     "newton_residual",
     "residual_stats",
     "rk4_step",
+    "rk4_state_step",
+    "rollout",
     "semi_implicit_euler_step",
+    "second_order_dynamics",
+    "split_state",
     "velocity_verlet_step",
 ]
 
