@@ -1,6 +1,6 @@
 import torch
 
-from mechanica import finite_horizon_lqr, quadratic_cost, second_order_dynamics, tvlqr
+from mechanica import finite_horizon_lqr, quadratic_cost, rollout_cost, second_order_dynamics, tvlqr
 
 
 def test_finite_horizon_lqr_stabilizes_double_integrator_direction() -> None:
@@ -51,4 +51,30 @@ def test_quadratic_cost_is_differentiable() -> None:
 
     assert cost > 0
     assert states.grad is not None
+    assert controls.grad is not None
+
+
+def test_rollout_cost_composes_dynamics_and_quadratic_cost() -> None:
+    def acceleration(
+        q: torch.Tensor,
+        qdot: torch.Tensor,
+        control: torch.Tensor | None,
+    ) -> torch.Tensor:
+        assert control is not None
+        return control
+
+    dynamics = second_order_dynamics(acceleration)
+    times = torch.linspace(0.0, 0.2, 3)
+    controls = torch.zeros(2, 1, requires_grad=True)
+    cost = rollout_cost(
+        dynamics,
+        torch.tensor([1.0, 0.0]),
+        times,
+        controls,
+        torch.eye(2),
+        torch.eye(1),
+    )
+    cost.backward()
+
+    assert cost > 0
     assert controls.grad is not None

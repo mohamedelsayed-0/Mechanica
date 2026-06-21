@@ -142,6 +142,13 @@ def _control_at(
     return controls[index]
 
 
+def _check_controls_length(controls: Tensor | Sequence[Tensor] | None, horizon: int) -> None:
+    if controls is None:
+        return
+    if len(controls) != horizon:
+        raise ValueError("controls must have one sample per time interval")
+
+
 def euler_state_step(
     dynamics: StateDynamics,
     time: Tensor,
@@ -169,6 +176,23 @@ def rk4_state_step(
     return state + dt * (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
 
+def discrete_step(
+    dynamics: StateDynamics,
+    time: Tensor,
+    state: Tensor,
+    dt: Tensor,
+    control: Tensor | None = None,
+    *,
+    method: str = "rk4",
+) -> Tensor:
+    """Advance state-space dynamics by one discrete step."""
+    if method == "euler":
+        return euler_state_step(dynamics, time, state, dt, control)
+    if method == "rk4":
+        return rk4_state_step(dynamics, time, state, dt, control)
+    raise ValueError("method must be either 'euler' or 'rk4'")
+
+
 def rollout(
     dynamics: StateDynamics,
     initial_state: Tensor,
@@ -186,6 +210,7 @@ def rollout(
         raise ValueError("times must be a one-dimensional tensor")
     if times.numel() == 0:
         raise ValueError("at least one time sample is required")
+    _check_controls_length(controls, times.numel() - 1)
 
     state = initial_state
     states = [state]
@@ -196,12 +221,7 @@ def rollout(
         if control is not None:
             control = control.to(dtype=state.dtype, device=state.device)
 
-        if method == "euler":
-            state = euler_state_step(dynamics, time, state, dt, control)
-        elif method == "rk4":
-            state = rk4_state_step(dynamics, time, state, dt, control)
-        else:
-            raise ValueError("method must be either 'euler' or 'rk4'")
+        state = discrete_step(dynamics, time, state, dt, control, method=method)
         states.append(state)
 
     return torch.stack(states, dim=0)
@@ -262,5 +282,64 @@ def linearize(
         )
     else:
         control_jacobian = _jacobian(value, control_var, create_graph=create_graph)
+
+    return state_jacobian, control_jacobian
+
+
+def discretize_linearization(A: Tensor, B: Tensor, dt: float | Tensor) -> tuple[Tensor, Tensor]:
+    """Return first-order discrete matrices for continuous Jacobians."""
+    step = torch.as_tensor(dt, dtype=A.dtype, device=A.device)
+    identity = torch.eye(A.shape[-1], dtype=A.dtype, device=A.device)
+    return identity + step * A, step * B
+
+
+def linearize_discrete(
+    dynamics: StateDynamics,
+    time: float | Tensor,
+    state: Tensor,
+    dt: float | Tensor,
+    control: Tensor | None = None,
+    *,
+    method: str = "rk4",
+    create_graph: bool = False,
+) -> tuple[Tensor, Tensor]:
+    """Return Jacobians of the one-step map ``x_next = F(t, x, u, dt)``."""
+    if state.ndim != 1:
+        raise ValueError("linearize_discrete expects an unbatched one-dimensional state")
+
+    state_var = state.clone().detach().requires_grad_(True)
+    time_tensor = torch.as_tensor(time, dtype=state.dtype, device=state.device)
+    dt_tensor = torch.as_tensor(dt, dtype=state.dtype, device=state.device)
+
+    control_var = None
+    if control is not None:
+        if control.ndim != 1:
+            raise ValueError("linearize_discrete expects an unbatched one-dimensional control")
+        control_var = control.clone().detach().requires_grad_(True)
+
+    next_state = discrete_step(
+        dynamics,
+        time_tensor,
+        state_var,
+        dt_tensor,
+        control_var,
+        method=method,
+    )
+    if next_state.shape != state.shape:
+        raise ValueError(
+            f"discrete dynamics must return shape {tuple(state.shape)}, "
+            f"got {tuple(next_state.shape)}"
+        )
+
+    state_jacobian = _jacobian(next_state, state_var, create_graph=create_graph)
+    if control_var is None:
+        control_jacobian = torch.zeros(
+            state.numel(),
+            0,
+            dtype=state.dtype,
+            device=state.device,
+        )
+    else:
+        control_jacobian = _jacobian(next_state, control_var, create_graph=create_graph)
 
     return state_jacobian, control_jacobian

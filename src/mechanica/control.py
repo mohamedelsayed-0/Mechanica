@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import torch
 
-from .dynamics import StateDynamics, linearize
+from .dynamics import StateDynamics, linearize, rollout
 
 Tensor = torch.Tensor
 
@@ -211,3 +211,35 @@ def quadratic_cost(
     running_control = torch.einsum("bi,bij,bj->b", control_error, r_seq, control_error).sum()
     terminal_cost = terminal_error @ terminal @ terminal_error
     return running_state + running_control + terminal_cost
+
+
+def rollout_cost(
+    dynamics: StateDynamics,
+    initial_state: Tensor,
+    times: Tensor,
+    controls: Tensor,
+    Q: Tensor,
+    R: Tensor,
+    Qf: Tensor | None = None,
+    *,
+    target_states: Tensor | None = None,
+    target_controls: Tensor | None = None,
+    method: str = "rk4",
+) -> Tensor:
+    """Roll out controlled dynamics and return quadratic trajectory cost."""
+    states = rollout(
+        dynamics,
+        initial_state,
+        times,
+        controls=controls,
+        method=method,
+    )
+    return quadratic_cost(
+        states,
+        controls,
+        Q,
+        R,
+        Qf,
+        target_states=target_states,
+        target_controls=target_controls,
+    )

@@ -11,13 +11,16 @@ from .classical import (
     near_surface_gravity_force,
     newton_residual,
 )
-from .control import LQRResult, finite_horizon_lqr, quadratic_cost, tvlqr
+from .control import LQRResult, finite_horizon_lqr, quadratic_cost, rollout_cost, tvlqr
 from .diagnostics import DiagnosticsReport, energy_drift, lagrangian_diagnostics, residual_stats
 from .dynamics import (
     euler_state_step,
+    discrete_step,
+    discretize_linearization,
     hamiltonian_dynamics,
     join_state,
     linearize,
+    linearize_discrete,
     rk4_state_step,
     rollout,
     second_order_dynamics,
@@ -56,6 +59,8 @@ __all__ = [
     "canonical_transformation_residual",
     "center_of_mass",
     "computed_torque",
+    "discrete_step",
+    "discretize_linearization",
     "energy_drift",
     "estimate_acceleration",
     "estimate_velocity",
@@ -77,6 +82,7 @@ __all__ = [
     "lagrangian_state_dynamics",
     "linear_momentum",
     "linearize",
+    "linearize_discrete",
     "manipulator_terms",
     "near_surface_gravity_force",
     "newton_residual",
@@ -86,6 +92,7 @@ __all__ = [
     "rk4_step",
     "rk4_state_step",
     "rollout",
+    "rollout_cost",
     "semi_implicit_euler_step",
     "second_order_dynamics",
     "split_state",

@@ -1,10 +1,13 @@
 import torch
+import pytest
 
 from mechanica import (
     HamiltonianSystem,
+    discrete_step,
     hamiltonian_dynamics,
     join_state,
     linearize,
+    linearize_discrete,
     rollout,
     second_order_dynamics,
     split_state,
@@ -51,6 +54,46 @@ def test_linearize_controlled_double_integrator() -> None:
 
     assert torch.allclose(a_matrix, torch.tensor([[0.0, 1.0], [0.0, 0.0]]))
     assert torch.allclose(b_matrix, torch.tensor([[0.0], [1.0]]))
+
+
+def test_discrete_step_and_linearize_discrete_double_integrator() -> None:
+    def acceleration(
+        q: torch.Tensor,
+        qdot: torch.Tensor,
+        control: torch.Tensor | None,
+    ) -> torch.Tensor:
+        assert control is not None
+        return control
+
+    dynamics = second_order_dynamics(acceleration)
+    state = torch.tensor([2.0, -1.0])
+    control = torch.tensor([3.0])
+    dt = torch.tensor(0.1)
+
+    next_state = discrete_step(dynamics, torch.tensor(0.0), state, dt, control)
+    a_matrix, b_matrix = linearize_discrete(dynamics, 0.0, state, dt, control)
+
+    assert torch.allclose(next_state, torch.tensor([1.915, -0.7]))
+    assert torch.allclose(a_matrix, torch.tensor([[1.0, 0.1], [0.0, 1.0]]))
+    assert torch.allclose(b_matrix, torch.tensor([[0.005], [0.1]]))
+
+
+def test_rollout_validates_control_horizon() -> None:
+    def dynamics(
+        t: torch.Tensor,
+        state: torch.Tensor,
+        control: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        del t, control
+        return state
+
+    with pytest.raises(ValueError, match="controls must have one sample"):
+        rollout(
+            dynamics,
+            torch.tensor([1.0]),
+            torch.linspace(0.0, 1.0, 3),
+            controls=torch.zeros(1, 1),
+        )
 
 
 def test_hamiltonian_dynamics_adapts_to_state_space_with_control() -> None:
