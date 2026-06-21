@@ -38,11 +38,15 @@ from .learning import (
 )
 from .robotics import (
     ManipulatorTerms,
+    bias_forces,
     computed_torque,
     forward_dynamics,
+    gravity_forces,
     inverse_dynamics,
     lagrangian_state_dynamics,
     manipulator_terms,
+    mass_matrix,
+    velocity_forces,
 )
 
 __all__ = [
@@ -56,6 +60,7 @@ __all__ = [
     "ManipulatorTerms",
     "NativeExtensionUnavailable",
     "angular_momentum",
+    "bias_forces",
     "canonical_transformation_residual",
     "center_of_mass",
     "computed_torque",
@@ -71,6 +76,7 @@ __all__ = [
     "fit_lagrangian_residual",
     "fit_rollout",
     "forward_dynamics",
+    "gravity_forces",
     "hamiltonian_dynamics",
     "hamiltonian_residual_loss",
     "hooke_spring_force",
@@ -84,6 +90,7 @@ __all__ = [
     "linearize",
     "linearize_discrete",
     "manipulator_terms",
+    "mass_matrix",
     "near_surface_gravity_force",
     "newton_residual",
     "quadratic_cost",
@@ -97,6 +104,7 @@ __all__ = [
     "second_order_dynamics",
     "split_state",
     "tvlqr",
+    "velocity_forces",
     "velocity_verlet_step",
 ]
 

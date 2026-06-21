@@ -20,6 +20,34 @@ class ManipulatorTerms:
     bias_forces: Tensor
 
 
+def _zero_velocity_like(q: Tensor) -> Tensor:
+    return torch.zeros_like(q)
+
+
+def _map_control_to_forces(
+    control: Tensor,
+    input_matrix: Tensor | None,
+    reference_forces: Tensor,
+) -> Tensor:
+    control = control.to(dtype=reference_forces.dtype, device=reference_forces.device)
+    if input_matrix is None:
+        if control.shape != reference_forces.shape:
+            raise ValueError(
+                f"control must have shape {tuple(reference_forces.shape)}, "
+                f"got {tuple(control.shape)}"
+            )
+        return control
+
+    matrix = input_matrix.to(dtype=reference_forces.dtype, device=reference_forces.device)
+    forces = matrix @ control if control.ndim == 1 else control @ matrix.T
+    if forces.shape != reference_forces.shape:
+        raise ValueError(
+            f"mapped control forces must have shape {tuple(reference_forces.shape)}, "
+            f"got {tuple(forces.shape)}"
+        )
+    return forces
+
+
 def manipulator_terms(
     system: LagrangianSystem,
     q: Tensor,
@@ -71,6 +99,55 @@ def manipulator_terms(
     )
 
 
+def mass_matrix(
+    system: LagrangianSystem,
+    q: Tensor,
+    qdot: Tensor | None = None,
+    *,
+    create_graph: bool = False,
+) -> Tensor:
+    """Return the manipulator mass matrix ``M``."""
+    if qdot is None:
+        qdot = _zero_velocity_like(q)
+    return manipulator_terms(system, q, qdot, create_graph=create_graph).mass_matrix
+
+
+def bias_forces(
+    system: LagrangianSystem,
+    q: Tensor,
+    qdot: Tensor,
+    *,
+    create_graph: bool = False,
+) -> Tensor:
+    """Return all non-inertial generalized forces in ``M qddot + bias = tau``."""
+    return manipulator_terms(system, q, qdot, create_graph=create_graph).bias_forces
+
+
+def gravity_forces(
+    system: LagrangianSystem,
+    q: Tensor,
+    *,
+    create_graph: bool = False,
+) -> Tensor:
+    """Return the zero-velocity generalized gravity/potential forces."""
+    return bias_forces(system, q, _zero_velocity_like(q), create_graph=create_graph)
+
+
+def velocity_forces(
+    system: LagrangianSystem,
+    q: Tensor,
+    qdot: Tensor,
+    *,
+    create_graph: bool = False,
+) -> Tensor:
+    """Return velocity-dependent bias forces with gravity removed."""
+    return bias_forces(system, q, qdot, create_graph=create_graph) - gravity_forces(
+        system,
+        q,
+        create_graph=create_graph,
+    )
+
+
 def inverse_dynamics(
     system: LagrangianSystem,
     q: Tensor,
@@ -93,12 +170,12 @@ def forward_dynamics(
     qdot: Tensor,
     tau: Tensor,
     *,
+    input_matrix: Tensor | None = None,
     create_graph: bool = False,
 ) -> Tensor:
     """Return ``qddot`` from generalized forces ``tau``."""
-    if tau.shape != q.shape:
-        raise ValueError("tau must have the same shape as q")
     terms = manipulator_terms(system, q, qdot, create_graph=create_graph)
+    tau = _map_control_to_forces(tau, input_matrix, terms.bias_forces)
     rhs = tau - terms.bias_forces
     return torch.linalg.solve(terms.mass_matrix, rhs.unsqueeze(-1)).squeeze(-1)
 
@@ -107,9 +184,14 @@ def lagrangian_state_dynamics(
     system: LagrangianSystem,
     *,
     dim: int | None = None,
+    input_matrix: Tensor | None = None,
     create_graph: bool = True,
 ):
-    """Adapt a Lagrangian system into ``x' = f(t, x, tau)`` over ``x = [q, qdot]``."""
+    """Adapt a Lagrangian system into ``x' = f(t, x, u)`` over ``x = [q, qdot]``.
+
+    If ``input_matrix`` is supplied with shape ``(dim, control_dim)``,
+    controls are mapped to generalized forces with ``tau = B @ u``.
+    """
 
     def dynamics(time: Tensor, state: Tensor, control: Tensor | None = None) -> Tensor:
         del time
@@ -118,7 +200,14 @@ def lagrangian_state_dynamics(
             tau = torch.zeros_like(q)
         else:
             tau = control.to(dtype=state.dtype, device=state.device)
-        qddot = forward_dynamics(system, q, qdot, tau, create_graph=create_graph)
+        qddot = forward_dynamics(
+            system,
+            q,
+            qdot,
+            tau,
+            input_matrix=input_matrix,
+            create_graph=create_graph,
+        )
         return join_state(qdot, qddot)
 
     return dynamics
