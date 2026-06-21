@@ -56,6 +56,16 @@ from .robotics import (
     mass_matrix,
     velocity_forces,
 )
+from .robotics_kinematics import (
+    operational_space_velocity,
+    planar_chain_points,
+    planar_end_effector_pose,
+    planar_forward_kinematics,
+    planar_jacobian,
+    planar_link_angles,
+    planar_link_positions,
+    planar_link_vectors,
+)
 
 __all__ = [
     "DiagnosticsReport",
@@ -105,6 +115,14 @@ __all__ = [
     "native_spring_available",
     "native_spring_status",
     "newton_residual",
+    "operational_space_velocity",
+    "planar_chain_points",
+    "planar_end_effector_pose",
+    "planar_forward_kinematics",
+    "planar_jacobian",
+    "planar_link_angles",
+    "planar_link_positions",
+    "planar_link_vectors",
     "quadratic_cost",
     "residual_loss",
     "residual_stats",

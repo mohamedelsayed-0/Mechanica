@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mechanica-torch"
 version = "0.1.0"
-description = "Differentiable analytical and classical mechanics in PyTorch."
+description = "Differentiable mechanics, control, and robotics tools for PyTorch."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
