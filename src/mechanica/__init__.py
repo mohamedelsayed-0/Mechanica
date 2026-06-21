@@ -1,6 +1,12 @@
 """PyTorch-native analytical and classical mechanics."""
 
-from ._native import NativeExtensionUnavailable, native_spring_available, native_spring_status
+from ._native import (
+    NativeExtensionUnavailable,
+    native_kernels_available,
+    native_kernels_status,
+    native_spring_available,
+    native_spring_status,
+)
 from .analytical import HamiltonianSystem, LagrangianSystem, canonical_transformation_residual
 from .classical import (
     angular_momentum,
@@ -10,6 +16,7 @@ from .classical import (
     linear_momentum,
     near_surface_gravity_force,
     newton_residual,
+    pairwise_gravity_force,
 )
 from .control import (
     LQRResult,
@@ -112,6 +119,8 @@ __all__ = [
     "manipulator_terms",
     "mass_matrix",
     "near_surface_gravity_force",
+    "native_kernels_available",
+    "native_kernels_status",
     "native_spring_available",
     "native_spring_status",
     "newton_residual",
@@ -123,6 +132,7 @@ __all__ = [
     "planar_link_angles",
     "planar_link_positions",
     "planar_link_vectors",
+    "pairwise_gravity_force",
     "quadratic_cost",
     "residual_loss",
     "residual_stats",

@@ -67,9 +67,41 @@ torch::Tensor hooke_spring_force(
     return forces;
 }
 
+torch::Tensor pairwise_gravity_force(
+    torch::Tensor positions,
+    torch::Tensor masses,
+    double gravitational_constant,
+    double softening) {
+    check_shape(positions.dim() == 2, "positions must be shaped (bodies, dim)");
+    check_shape(positions.is_floating_point(), "positions must be floating point");
+
+    auto mass = masses.to(positions.options());
+    if (mass.dim() == 0) {
+        mass = mass.expand({positions.size(0)});
+    }
+    check_shape(mass.dim() == 1, "masses must be a scalar or shaped (bodies,)");
+    check_shape(mass.size(0) == positions.size(0), "masses length must match bodies");
+
+    auto delta = positions.unsqueeze(0) - positions.unsqueeze(1);
+    auto distance2 = (delta * delta).sum(-1) + softening * softening;
+    auto eye = torch::eye(positions.size(0), positions.options().dtype(torch::kBool));
+    distance2 = distance2.masked_fill(eye, 1);
+
+    auto inv_distance3 = distance2.rsqrt() / distance2;
+    inv_distance3 = inv_distance3.masked_fill(eye, 0);
+
+    auto mass_product = mass.unsqueeze(0) * mass.unsqueeze(1);
+    auto magnitude = gravitational_constant * mass_product * inv_distance3;
+    return (magnitude.unsqueeze(-1) * delta).sum(1);
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def(
         "hooke_spring_force",
         &hooke_spring_force,
         "Hooke spring forces for particle graphs");
+    m.def(
+        "pairwise_gravity_force",
+        &pairwise_gravity_force,
+        "Pairwise gravitational forces for particle systems");
 }

@@ -82,8 +82,25 @@ def hooke_spring_force_native(
     )
 
 
-def native_spring_status() -> tuple[bool, str | None]:
-    """Return whether the optional spring extension can be loaded."""
+def pairwise_gravity_force_native(
+    positions: Tensor,
+    masses: float | Tensor,
+    *,
+    gravitational_constant: float = 1.0,
+    softening: float = 0.0,
+) -> Tensor:
+    """Evaluate pairwise gravity through the optional C++ extension."""
+    extension = _load_spring_extension()
+    return extension.pairwise_gravity_force(
+        positions,
+        _as_tensor_like(masses, positions),
+        float(gravitational_constant),
+        float(softening),
+    )
+
+
+def native_kernels_status() -> tuple[bool, str | None]:
+    """Return whether the optional native extension can be loaded."""
     try:
         _load_spring_extension()
     except NativeExtensionUnavailable as exc:
@@ -91,7 +108,17 @@ def native_spring_status() -> tuple[bool, str | None]:
     return True, None
 
 
-def native_spring_available() -> bool:
-    """Return ``True`` when the optional spring extension can be loaded."""
-    available, _ = native_spring_status()
+def native_kernels_available() -> bool:
+    """Return ``True`` when the optional native extension can be loaded."""
+    available, _ = native_kernels_status()
     return available
+
+
+def native_spring_status() -> tuple[bool, str | None]:
+    """Return whether the optional native extension can be loaded."""
+    return native_kernels_status()
+
+
+def native_spring_available() -> bool:
+    """Return ``True`` when the optional native extension can be loaded."""
+    return native_kernels_available()

@@ -59,8 +59,8 @@ print(residual.abs().max())
 - state-space rollout, linearization, LQR, TVLQR, and feedback rollout
 - manipulator dynamics: mass matrices, bias/gravity terms, inverse/forward dynamics
 - planar serial-chain kinematics and Jacobians
-- classical particle mechanics and spring forces
-- optional C++/Torch spring kernels
+- classical particle mechanics, springs, and pairwise gravity
+- optional C++/Torch spring and gravity kernels
 - learned Lagrangian and Hamiltonian modules
 
 ## Examples
@@ -75,5 +75,5 @@ python examples/native_spring_benchmark.py
 
 Mechanica is pure PyTorch by default. Set `use_native=True` on supported
 helpers, or `MECHANICA_USE_NATIVE=1`, to try optional C++/Torch kernels. Use
-`native_spring_status()` to check whether the local extension toolchain is
+`native_kernels_status()` to check whether the local extension toolchain is
 available. Set `MECHANICA_NATIVE_BUILD_DIR` to choose the build cache location.

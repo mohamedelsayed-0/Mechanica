@@ -9,6 +9,7 @@ from mechanica import (
     kinetic_energy,
     linear_momentum,
     newton_residual,
+    pairwise_gravity_force,
 )
 
 
@@ -35,6 +36,17 @@ def test_hooke_spring_force_balances_pair() -> None:
 
     assert torch.allclose(forces[0], torch.tensor([10.0, 0.0]))
     assert torch.allclose(forces[1], torch.tensor([-10.0, 0.0]))
+
+
+def test_pairwise_gravity_force_balances_pair() -> None:
+    positions = torch.tensor([[0.0, 0.0], [2.0, 0.0]])
+    masses = torch.tensor([2.0, 3.0])
+
+    forces = pairwise_gravity_force(positions, masses, gravitational_constant=10.0)
+
+    assert torch.allclose(forces[0], torch.tensor([15.0, 0.0]))
+    assert torch.allclose(forces[1], torch.tensor([-15.0, 0.0]))
+    assert torch.allclose(forces.sum(dim=0), torch.zeros(2))
 
 
 def test_hooke_spring_force_explicit_native_failure_is_visible(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -65,6 +77,23 @@ def test_hooke_spring_force_env_native_falls_back(monkeypatch: pytest.MonkeyPatc
 
     assert torch.allclose(forces[0], torch.tensor([10.0, 0.0]))
     assert torch.allclose(forces[1], torch.tensor([-10.0, 0.0]))
+
+
+def test_pairwise_gravity_force_env_native_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail_native(*args, **kwargs):
+        raise NativeExtensionUnavailable("native gravity test failure")
+
+    monkeypatch.setenv("MECHANICA_USE_NATIVE", "1")
+    monkeypatch.setattr(classical, "pairwise_gravity_force_native", fail_native)
+
+    positions = torch.tensor([[0.0, 0.0], [2.0, 0.0]])
+    masses = torch.tensor([2.0, 3.0])
+
+    with pytest.warns(RuntimeWarning, match="native gravity test failure"):
+        forces = pairwise_gravity_force(positions, masses, gravitational_constant=10.0)
+
+    assert torch.allclose(forces[0], torch.tensor([15.0, 0.0]))
+    assert torch.allclose(forces[1], torch.tensor([-15.0, 0.0]))
 
 
 def test_newton_residual_zero_when_force_matches_acceleration() -> None:

@@ -10,6 +10,7 @@ from ._native import (
     NativeExtensionUnavailable,
     hooke_spring_force_native,
     native_springs_requested,
+    pairwise_gravity_force_native,
 )
 
 Tensor = torch.Tensor
@@ -118,6 +119,57 @@ def near_surface_gravity_force(
     force = torch.zeros(*mass.shape, dim, dtype=mass.dtype, device=mass.device)
     force[..., axis] = -mass * g
     return force
+
+
+def pairwise_gravity_force(
+    positions: Tensor,
+    masses: float | Tensor,
+    *,
+    gravitational_constant: float = 1.0,
+    softening: float = 0.0,
+    use_native: bool | None = None,
+) -> Tensor:
+    """Return pairwise inverse-square gravitational forces.
+
+    ``positions`` is shaped ``(bodies, dim)``. Positive ``softening`` avoids
+    singularities by using ``distance^2 + softening^2`` in the denominator.
+    """
+    fallback_on_unavailable = False
+    if use_native is None:
+        use_native = native_springs_requested()
+        fallback_on_unavailable = use_native
+
+    if use_native:
+        try:
+            return pairwise_gravity_force_native(
+                positions,
+                masses,
+                gravitational_constant=gravitational_constant,
+                softening=softening,
+            )
+        except NativeExtensionUnavailable as exc:
+            if not fallback_on_unavailable:
+                raise
+            warnings.warn(str(exc), RuntimeWarning, stacklevel=2)
+
+    if positions.ndim != 2:
+        raise ValueError("positions must be shaped (bodies, dim)")
+    mass = _as_tensor_like(masses, positions)
+    if mass.ndim == 0:
+        mass = mass.expand(positions.shape[0])
+    if mass.ndim != 1 or mass.shape[0] != positions.shape[0]:
+        raise ValueError("masses must be a scalar or shaped (bodies,)")
+
+    delta = positions.unsqueeze(0) - positions.unsqueeze(1)
+    distance2 = (delta * delta).sum(dim=-1) + softening * softening
+    eye = torch.eye(positions.shape[0], dtype=torch.bool, device=positions.device)
+    distance2 = distance2.masked_fill(eye, 1)
+    inv_distance3 = distance2.rsqrt() / distance2
+    inv_distance3 = inv_distance3.masked_fill(eye, 0)
+
+    mass_product = mass.unsqueeze(0) * mass.unsqueeze(1)
+    magnitude = gravitational_constant * mass_product * inv_distance3
+    return (magnitude.unsqueeze(-1) * delta).sum(dim=1)
 
 
 def hooke_spring_force(
