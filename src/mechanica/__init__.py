@@ -1,6 +1,6 @@
 """PyTorch-native analytical and classical mechanics."""
 
-from ._native import NativeExtensionUnavailable
+from ._native import NativeExtensionUnavailable, native_spring_available, native_spring_status
 from .analytical import HamiltonianSystem, LagrangianSystem, canonical_transformation_residual
 from .classical import (
     angular_momentum,
@@ -102,6 +102,8 @@ __all__ = [
     "manipulator_terms",
     "mass_matrix",
     "near_surface_gravity_force",
+    "native_spring_available",
+    "native_spring_status",
     "newton_residual",
     "quadratic_cost",
     "residual_loss",

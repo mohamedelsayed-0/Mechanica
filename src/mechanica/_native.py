@@ -13,6 +13,7 @@ Tensor = torch.Tensor
 
 _NATIVE_ENV = "MECHANICA_USE_NATIVE"
 _VERBOSE_ENV = "MECHANICA_NATIVE_VERBOSE"
+_BUILD_DIR_ENV = "MECHANICA_NATIVE_BUILD_DIR"
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
@@ -42,11 +43,15 @@ def _load_spring_extension() -> Any:
 
     extra_cflags = ["/O2"] if os.name == "nt" else ["-O3"]
     verbose = os.environ.get(_VERBOSE_ENV, "").strip().lower() in _TRUTHY
+    build_directory = os.environ.get(_BUILD_DIR_ENV)
+    if build_directory:
+        Path(build_directory).mkdir(parents=True, exist_ok=True)
 
     try:
         return load(
             name="mechanica_native_springs",
             sources=[str(source)],
+            build_directory=build_directory,
             extra_cflags=extra_cflags,
             with_cuda=False,
             verbose=verbose,
@@ -75,3 +80,18 @@ def hooke_spring_force_native(
         velocities,
         _as_tensor_like(damping, positions),
     )
+
+
+def native_spring_status() -> tuple[bool, str | None]:
+    """Return whether the optional spring extension can be loaded."""
+    try:
+        _load_spring_extension()
+    except NativeExtensionUnavailable as exc:
+        return False, str(exc)
+    return True, None
+
+
+def native_spring_available() -> bool:
+    """Return ``True`` when the optional spring extension can be loaded."""
+    available, _ = native_spring_status()
+    return available

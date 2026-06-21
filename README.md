@@ -41,6 +41,19 @@ You can also set `MECHANICA_USE_NATIVE=1` to request the native path globally.
 If the extension cannot compile on that machine, env-based native loading falls
 back to the pure Torch implementation with a warning. Native loading requires
 PyTorch's extension build toolchain (`ninja` plus a local C++ compiler).
+Set `MECHANICA_NATIVE_BUILD_DIR` to choose the extension build cache location.
+
+To check or benchmark the native spring kernel:
+
+```python
+from mechanica import native_spring_status
+
+available, reason = native_spring_status()
+```
+
+```bash
+python examples/native_spring_benchmark.py
+```
 
 ## Example
 
