@@ -23,9 +23,16 @@ from .dynamics import (
     second_order_dynamics,
     split_state,
 )
-from .fit import FitResult, fit_lagrangian_residual
+from .fit import FitResult, fit_hamiltonian_residual, fit_lagrangian_residual, fit_rollout
 from .integrators import euler_step, rk4_step, semi_implicit_euler_step, velocity_verlet_step
 from .kinematics import estimate_acceleration, estimate_velocity
+from .learning import (
+    HamiltonianModule,
+    LagrangianModule,
+    hamiltonian_residual_loss,
+    lagrangian_residual_loss,
+    residual_loss,
+)
 from .robotics import (
     ManipulatorTerms,
     computed_torque,
@@ -38,8 +45,10 @@ from .robotics import (
 __all__ = [
     "DiagnosticsReport",
     "FitResult",
+    "HamiltonianModule",
     "HamiltonianSystem",
     "LQRResult",
+    "LagrangianModule",
     "LagrangianSystem",
     "ManipulatorTerms",
     "NativeExtensionUnavailable",
@@ -53,14 +62,18 @@ __all__ = [
     "euler_step",
     "euler_state_step",
     "finite_horizon_lqr",
+    "fit_hamiltonian_residual",
     "fit_lagrangian_residual",
+    "fit_rollout",
     "forward_dynamics",
     "hamiltonian_dynamics",
+    "hamiltonian_residual_loss",
     "hooke_spring_force",
     "inverse_dynamics",
     "join_state",
     "kinetic_energy",
     "lagrangian_diagnostics",
+    "lagrangian_residual_loss",
     "lagrangian_state_dynamics",
     "linear_momentum",
     "linearize",
@@ -68,6 +81,7 @@ __all__ = [
     "near_surface_gravity_force",
     "newton_residual",
     "quadratic_cost",
+    "residual_loss",
     "residual_stats",
     "rk4_step",
     "rk4_state_step",

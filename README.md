@@ -77,9 +77,49 @@ print(residual.abs().max())
 - energy, momentum, springs, gravity, and Newton residuals
 - differentiable integrators
 - inverse mechanics from trajectory data
+- state-space dynamics for control, robotics, and learned systems
+- finite-horizon LQR and TVLQR around differentiable dynamics
+- Lagrangian manipulator dynamics for inverse/forward dynamics
 
 Mechanica is tensor-first, not symbolic. It uses PyTorch autograd to inspect
 concrete systems and trajectories.
+
+## Dynamics, control, and robotics
+
+Mechanica can translate mechanics models into the state-space form used by
+control and robotics:
+
+```python
+from mechanica import finite_horizon_lqr, hamiltonian_dynamics, rollout
+
+dynamics = hamiltonian_dynamics(system)  # x = [q, p], u adds generalized force
+trajectory = rollout(dynamics, initial_state, times, controls=controls)
+lqr = finite_horizon_lqr(A, B, Q, R, horizon=50)
+u = lqr.control(state, step=0)
+```
+
+For Lagrangian robotics models:
+
+```python
+from mechanica import forward_dynamics, inverse_dynamics, lagrangian_state_dynamics
+
+tau = inverse_dynamics(system, q, qdot, qddot_desired)
+qddot = forward_dynamics(system, q, qdot, tau)
+dynamics = lagrangian_state_dynamics(system)  # x = [q, qdot], u = tau
+```
+
+## Learning mechanics
+
+Torch modules can be wrapped as learned energies and trained with residual or
+rollout losses:
+
+```python
+from mechanica import LagrangianModule, fit_rollout, lagrangian_residual_loss
+
+model = LagrangianModule(kinetic=kinetic_fn, potential=potential_net)
+loss = lagrangian_residual_loss(model.system(), q, qdot, qddot)
+result = fit_rollout(dynamics, x0, times, observed_states, model.parameters())
+```
 
 ## Analytical structure
 
