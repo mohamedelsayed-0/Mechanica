@@ -11,6 +11,7 @@ from .classical import (
     near_surface_gravity_force,
     newton_residual,
 )
+from .control import LQRResult, finite_horizon_lqr, quadratic_cost, tvlqr
 from .diagnostics import DiagnosticsReport, energy_drift, lagrangian_diagnostics, residual_stats
 from .dynamics import (
     euler_state_step,
@@ -30,6 +31,7 @@ __all__ = [
     "DiagnosticsReport",
     "FitResult",
     "HamiltonianSystem",
+    "LQRResult",
     "LagrangianSystem",
     "NativeExtensionUnavailable",
     "angular_momentum",
@@ -40,6 +42,7 @@ __all__ = [
     "estimate_velocity",
     "euler_step",
     "euler_state_step",
+    "finite_horizon_lqr",
     "fit_lagrangian_residual",
     "hamiltonian_dynamics",
     "hooke_spring_force",
@@ -50,6 +53,7 @@ __all__ = [
     "linearize",
     "near_surface_gravity_force",
     "newton_residual",
+    "quadratic_cost",
     "residual_stats",
     "rk4_step",
     "rk4_state_step",
@@ -57,6 +61,7 @@ __all__ = [
     "semi_implicit_euler_step",
     "second_order_dynamics",
     "split_state",
+    "tvlqr",
     "velocity_verlet_step",
 ]
 
