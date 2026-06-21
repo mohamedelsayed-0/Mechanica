@@ -26,6 +26,14 @@ from .dynamics import (
 from .fit import FitResult, fit_lagrangian_residual
 from .integrators import euler_step, rk4_step, semi_implicit_euler_step, velocity_verlet_step
 from .kinematics import estimate_acceleration, estimate_velocity
+from .robotics import (
+    ManipulatorTerms,
+    computed_torque,
+    forward_dynamics,
+    inverse_dynamics,
+    lagrangian_state_dynamics,
+    manipulator_terms,
+)
 
 __all__ = [
     "DiagnosticsReport",
@@ -33,10 +41,12 @@ __all__ = [
     "HamiltonianSystem",
     "LQRResult",
     "LagrangianSystem",
+    "ManipulatorTerms",
     "NativeExtensionUnavailable",
     "angular_momentum",
     "canonical_transformation_residual",
     "center_of_mass",
+    "computed_torque",
     "energy_drift",
     "estimate_acceleration",
     "estimate_velocity",
@@ -44,13 +54,17 @@ __all__ = [
     "euler_state_step",
     "finite_horizon_lqr",
     "fit_lagrangian_residual",
+    "forward_dynamics",
     "hamiltonian_dynamics",
     "hooke_spring_force",
+    "inverse_dynamics",
     "join_state",
     "kinetic_energy",
     "lagrangian_diagnostics",
+    "lagrangian_state_dynamics",
     "linear_momentum",
     "linearize",
+    "manipulator_terms",
     "near_surface_gravity_force",
     "newton_residual",
     "quadratic_cost",
