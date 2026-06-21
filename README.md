@@ -18,6 +18,30 @@ For local development:
 pip install -e ".[dev]"
 ```
 
+## Optional native kernels
+
+Mechanica is pure PyTorch by default. The spring force helper also has an
+optional C++/Torch extension path for local experiments:
+
+```bash
+pip install -e ".[native]"
+```
+
+```python
+forces = hooke_spring_force(
+    positions,
+    edges,
+    rest_lengths=1.0,
+    stiffness=10.0,
+    use_native=True,
+)
+```
+
+You can also set `MECHANICA_USE_NATIVE=1` to request the native path globally.
+If the extension cannot compile on that machine, env-based native loading falls
+back to the pure Torch implementation with a warning. Native loading requires
+PyTorch's extension build toolchain (`ninja` plus a local C++ compiler).
+
 ## Example
 
 ```python

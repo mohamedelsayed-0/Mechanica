@@ -1,5 +1,6 @@
 """PyTorch-native analytical and classical mechanics."""
 
+from ._native import NativeExtensionUnavailable
 from .analytical import HamiltonianSystem, LagrangianSystem, canonical_transformation_residual
 from .classical import (
     angular_momentum,
@@ -20,6 +21,7 @@ __all__ = [
     "FitResult",
     "HamiltonianSystem",
     "LagrangianSystem",
+    "NativeExtensionUnavailable",
     "angular_momentum",
     "canonical_transformation_residual",
     "center_of_mass",

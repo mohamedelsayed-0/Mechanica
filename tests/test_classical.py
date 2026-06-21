@@ -1,6 +1,9 @@
+import pytest
 import torch
 
+import mechanica.classical as classical
 from mechanica import (
+    NativeExtensionUnavailable,
     center_of_mass,
     hooke_spring_force,
     kinetic_energy,
@@ -29,6 +32,36 @@ def test_hooke_spring_force_balances_pair() -> None:
     edges = torch.tensor([[0, 1]])
 
     forces = hooke_spring_force(positions, edges, rest_lengths=1.0, stiffness=10.0)
+
+    assert torch.allclose(forces[0], torch.tensor([10.0, 0.0]))
+    assert torch.allclose(forces[1], torch.tensor([-10.0, 0.0]))
+
+
+def test_hooke_spring_force_explicit_native_failure_is_visible(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail_native(*args, **kwargs):
+        raise NativeExtensionUnavailable("native test failure")
+
+    monkeypatch.setattr(classical, "hooke_spring_force_native", fail_native)
+
+    positions = torch.tensor([[0.0, 0.0], [2.0, 0.0]])
+    edges = torch.tensor([[0, 1]])
+
+    with pytest.raises(NativeExtensionUnavailable, match="native test failure"):
+        hooke_spring_force(positions, edges, rest_lengths=1.0, stiffness=10.0, use_native=True)
+
+
+def test_hooke_spring_force_env_native_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail_native(*args, **kwargs):
+        raise NativeExtensionUnavailable("native test failure")
+
+    monkeypatch.setenv("MECHANICA_USE_NATIVE", "1")
+    monkeypatch.setattr(classical, "hooke_spring_force_native", fail_native)
+
+    positions = torch.tensor([[0.0, 0.0], [2.0, 0.0]])
+    edges = torch.tensor([[0, 1]])
+
+    with pytest.warns(RuntimeWarning, match="native test failure"):
+        forces = hooke_spring_force(positions, edges, rest_lengths=1.0, stiffness=10.0)
 
     assert torch.allclose(forces[0], torch.tensor([10.0, 0.0]))
     assert torch.allclose(forces[1], torch.tensor([-10.0, 0.0]))

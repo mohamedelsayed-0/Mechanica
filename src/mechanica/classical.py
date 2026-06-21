@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+import warnings
+
 import torch
+
+from ._native import (
+    NativeExtensionUnavailable,
+    hooke_spring_force_native,
+    native_springs_requested,
+)
 
 Tensor = torch.Tensor
 
@@ -120,12 +128,38 @@ def hooke_spring_force(
     *,
     velocities: Tensor | None = None,
     damping: float | Tensor = 0.0,
+    use_native: bool | None = None,
 ) -> Tensor:
     """Return forces from Hooke springs over a particle graph.
 
     ``positions`` is shaped ``(bodies, dim)`` and ``edges`` is shaped
     ``(springs, 2)`` with integer particle indices.
+
+    Set ``use_native=True`` to route through the optional C++/Torch extension.
+    When ``use_native`` is left as ``None``, setting ``MECHANICA_USE_NATIVE=1``
+    enables the native path with automatic fallback to the pure Torch kernel if
+    a compiler is unavailable.
     """
+    fallback_on_unavailable = False
+    if use_native is None:
+        use_native = native_springs_requested()
+        fallback_on_unavailable = use_native
+
+    if use_native:
+        try:
+            return hooke_spring_force_native(
+                positions,
+                edges,
+                rest_lengths,
+                stiffness,
+                velocities=velocities,
+                damping=damping,
+            )
+        except NativeExtensionUnavailable as exc:
+            if not fallback_on_unavailable:
+                raise
+            warnings.warn(str(exc), RuntimeWarning, stacklevel=2)
+
     if positions.ndim != 2:
         raise ValueError("hooke_spring_force currently expects positions shaped (bodies, dim)")
     if edges.ndim != 2 or edges.shape[-1] != 2:
