@@ -11,7 +11,15 @@ from .classical import (
     near_surface_gravity_force,
     newton_residual,
 )
-from .control import LQRResult, finite_horizon_lqr, quadratic_cost, rollout_cost, tvlqr
+from .control import (
+    LQRResult,
+    feedback_rollout,
+    finite_horizon_lqr,
+    infinite_horizon_lqr,
+    quadratic_cost,
+    rollout_cost,
+    tvlqr,
+)
 from .diagnostics import DiagnosticsReport, energy_drift, lagrangian_diagnostics, residual_stats
 from .dynamics import (
     euler_state_step,
@@ -71,6 +79,7 @@ __all__ = [
     "estimate_velocity",
     "euler_step",
     "euler_state_step",
+    "feedback_rollout",
     "finite_horizon_lqr",
     "fit_hamiltonian_residual",
     "fit_lagrangian_residual",
@@ -81,6 +90,7 @@ __all__ = [
     "hamiltonian_residual_loss",
     "hooke_spring_force",
     "inverse_dynamics",
+    "infinite_horizon_lqr",
     "join_state",
     "kinetic_energy",
     "lagrangian_diagnostics",

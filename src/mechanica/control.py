@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import torch
 
-from .dynamics import StateDynamics, linearize, rollout
+from .dynamics import StateDynamics, discrete_step, linearize, rollout
 
 Tensor = torch.Tensor
 
@@ -25,6 +25,13 @@ class LQRResult:
     discrete_B: Tensor | None = None
     nominal_states: Tensor | None = None
     nominal_controls: Tensor | None = None
+    iterations: int | None = None
+    converged: bool | None = None
+
+    def _step_index(self, step: int) -> int:
+        if self.gains.shape[0] == 1:
+            return 0
+        return min(step, self.gains.shape[0] - 1)
 
     def control(
         self,
@@ -35,10 +42,11 @@ class LQRResult:
         nominal_control: Tensor | None = None,
     ) -> Tensor:
         """Return the feedback control for ``state`` at a horizon step."""
-        gain = self.gains[step]
+        index = self._step_index(step)
+        gain = self.gains[index]
         reference = target_state
         if reference is None and self.nominal_states is not None:
-            reference = self.nominal_states[step]
+            reference = self.nominal_states[min(step, self.nominal_states.shape[0] - 1)]
         if reference is None:
             error = state
         else:
@@ -48,7 +56,7 @@ class LQRResult:
 
         nominal = nominal_control
         if nominal is None and self.nominal_controls is not None:
-            nominal = self.nominal_controls[step]
+            nominal = self.nominal_controls[min(step, self.nominal_controls.shape[0] - 1)]
         if nominal is None:
             return -correction
         return nominal.to(dtype=state.dtype, device=state.device) - correction
@@ -133,6 +141,57 @@ def finite_horizon_lqr(
         value_matrices=torch.stack(values, dim=0),
         discrete_A=a_seq,
         discrete_B=b_seq,
+    )
+
+
+def infinite_horizon_lqr(
+    A: Tensor,
+    B: Tensor,
+    Q: Tensor,
+    R: Tensor,
+    *,
+    tolerance: float = 1e-7,
+    max_iterations: int = 1000,
+    regularization: float = 1e-9,
+) -> LQRResult:
+    """Solve the discrete infinite-horizon LQR problem by Riccati iteration."""
+    if A.ndim != 2 or A.shape[0] != A.shape[1]:
+        raise ValueError("A must be a square matrix")
+    if B.ndim != 2 or B.shape[0] != A.shape[0]:
+        raise ValueError("B row dimension must match A")
+    if Q.shape != A.shape:
+        raise ValueError("Q shape must match A")
+    control_dim = B.shape[1]
+    if R.shape != (control_dim, control_dim):
+        raise ValueError("R shape must match control dimension")
+
+    value = Q.to(dtype=A.dtype, device=A.device)
+    identity = torch.eye(control_dim, dtype=A.dtype, device=A.device)
+    gain = torch.zeros(control_dim, A.shape[0], dtype=A.dtype, device=A.device)
+    converged = False
+    iterations = 0
+
+    for iteration in range(1, max_iterations + 1):
+        control_hessian = R + B.T @ value @ B
+        if regularization:
+            control_hessian = control_hessian + regularization * identity
+        gain = torch.linalg.solve(control_hessian, B.T @ value @ A)
+        next_value = Q + A.T @ value @ (A - B @ gain)
+        iterations = iteration
+        scale = next_value.abs().max().clamp_min(1)
+        if (next_value - value).abs().max() <= tolerance * scale:
+            value = next_value
+            converged = True
+            break
+        value = next_value
+
+    return LQRResult(
+        gains=gain.unsqueeze(0),
+        value_matrices=value.unsqueeze(0),
+        discrete_A=A,
+        discrete_B=B,
+        iterations=iterations,
+        converged=converged,
     )
 
 
@@ -243,3 +302,46 @@ def rollout_cost(
         target_states=target_states,
         target_controls=target_controls,
     )
+
+
+def feedback_rollout(
+    dynamics: StateDynamics,
+    controller: LQRResult,
+    initial_state: Tensor,
+    times: Tensor,
+    *,
+    target_states: Tensor | None = None,
+    nominal_controls: Tensor | None = None,
+    method: str = "rk4",
+) -> tuple[Tensor, Tensor]:
+    """Roll out dynamics using an LQR-style feedback controller."""
+    if times.ndim != 1:
+        raise ValueError("times must be one-dimensional")
+    if times.numel() < 2:
+        raise ValueError("at least two time samples are required")
+
+    state = initial_state
+    states = [state]
+    controls = []
+    for step in range(times.numel() - 1):
+        target = None if target_states is None else target_states[step]
+        nominal = None if nominal_controls is None else nominal_controls[step]
+        control = controller.control(
+            state,
+            step,
+            target_state=target,
+            nominal_control=nominal,
+        )
+        controls.append(control)
+        dt = (times[step + 1] - times[step]).to(dtype=state.dtype, device=state.device)
+        state = discrete_step(
+            dynamics,
+            times[step].to(dtype=state.dtype, device=state.device),
+            state,
+            dt,
+            control,
+            method=method,
+        )
+        states.append(state)
+
+    return torch.stack(states, dim=0), torch.stack(controls, dim=0)

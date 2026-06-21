@@ -1,6 +1,14 @@
 import torch
 
-from mechanica import finite_horizon_lqr, quadratic_cost, rollout_cost, second_order_dynamics, tvlqr
+from mechanica import (
+    feedback_rollout,
+    finite_horizon_lqr,
+    infinite_horizon_lqr,
+    quadratic_cost,
+    rollout_cost,
+    second_order_dynamics,
+    tvlqr,
+)
 
 
 def test_finite_horizon_lqr_stabilizes_double_integrator_direction() -> None:
@@ -17,6 +25,21 @@ def test_finite_horizon_lqr_stabilizes_double_integrator_direction() -> None:
     assert result.value_matrices.shape == (31, 2, 2)
     assert control.shape == (1,)
     assert control[0] < 0
+
+
+def test_infinite_horizon_lqr_stabilizes_discrete_double_integrator() -> None:
+    dt = 0.1
+    a_matrix = torch.tensor([[1.0, dt], [0.0, 1.0]])
+    b_matrix = torch.tensor([[0.5 * dt * dt], [dt]])
+    q_matrix = torch.diag(torch.tensor([1.0, 0.1]))
+    r_matrix = torch.tensor([[0.01]])
+
+    result = infinite_horizon_lqr(a_matrix, b_matrix, q_matrix, r_matrix)
+    closed_loop = a_matrix - b_matrix @ result.gains[0]
+
+    assert result.converged
+    assert result.gains.shape == (1, 1, 2)
+    assert torch.linalg.eigvals(closed_loop).abs().max() < 1
 
 
 def test_tvlqr_linearizes_state_space_dynamics() -> None:
@@ -78,3 +101,32 @@ def test_rollout_cost_composes_dynamics_and_quadratic_cost() -> None:
 
     assert cost > 0
     assert controls.grad is not None
+
+
+def test_feedback_rollout_applies_lqr_controller() -> None:
+    def acceleration(
+        q: torch.Tensor,
+        qdot: torch.Tensor,
+        control: torch.Tensor | None,
+    ) -> torch.Tensor:
+        assert control is not None
+        return control
+
+    dt = 0.1
+    a_matrix = torch.tensor([[1.0, dt], [0.0, 1.0]])
+    b_matrix = torch.tensor([[0.5 * dt * dt], [dt]])
+    controller = infinite_horizon_lqr(
+        a_matrix,
+        b_matrix,
+        torch.diag(torch.tensor([1.0, 0.1])),
+        torch.tensor([[0.01]]),
+    )
+    states, controls = feedback_rollout(
+        second_order_dynamics(acceleration),
+        controller,
+        torch.tensor([1.0, 0.0]),
+        torch.linspace(0.0, 2.0, 21),
+    )
+
+    assert controls.shape == (20, 1)
+    assert states[-1].norm() < states[0].norm()

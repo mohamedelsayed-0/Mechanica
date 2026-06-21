@@ -2,7 +2,7 @@
 
 import torch
 
-from mechanica import LagrangianSystem, lagrangian_state_dynamics, rk4_state_step, tvlqr
+from mechanica import LagrangianSystem, feedback_rollout, lagrangian_state_dynamics, tvlqr
 
 mass = torch.tensor(1.0)
 length = torch.tensor(1.0)
@@ -36,18 +36,12 @@ controller = tvlqr(
     Qf=torch.diag(torch.tensor([60.0, 6.0])),
 )
 
-state = torch.tensor([torch.pi + 0.25, 0.0])
-states = [state]
-controls = []
-for step in range(times.numel() - 1):
-    torque = controller.control(state, step)
-    controls.append(torque)
-    dt = times[step + 1] - times[step]
-    state = rk4_state_step(dynamics, times[step], state, dt, torque)
-    states.append(state)
-
-trajectory = torch.stack(states)
-torques = torch.stack(controls)
+trajectory, torques = feedback_rollout(
+    dynamics,
+    controller,
+    torch.tensor([torch.pi + 0.25, 0.0]),
+    times,
+)
 
 initial_error = (trajectory[0, 0] - torch.pi).abs()
 final_error = (trajectory[-1, 0] - torch.pi).abs()
