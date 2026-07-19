@@ -1,0 +1,23 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -e ".[dev,native]"
+      - run: python setup_native.py build_ext --inplace
+      - run: python -m pytest
+        env:
+          MECHANICA_TEST_NATIVE: "1"
+      - run: python -m ruff check .

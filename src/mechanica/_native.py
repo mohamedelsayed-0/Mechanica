@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import importlib
 import os
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,11 @@ def _as_tensor_like(value: float | Tensor, like: Tensor) -> Tensor:
 
 @lru_cache(maxsize=1)
 def _load_spring_extension() -> Any:
+    try:
+        return importlib.import_module("mechanica._mechanica_native")
+    except ImportError:
+        pass
+
     try:
         from torch.utils.cpp_extension import load
     except Exception as exc:  # pragma: no cover - depends on local torch install
@@ -72,14 +78,24 @@ def hooke_spring_force_native(
 ) -> Tensor:
     """Evaluate Hooke spring forces through the optional C++ extension."""
     extension = _load_spring_extension()
-    return extension.hooke_spring_force(
-        positions,
+    original_shape = positions.shape
+    edge_shape = (*positions.shape[:-2], edges.shape[0])
+    flat_positions = positions.reshape(-1, *positions.shape[-2:])
+    flat_velocities = None if velocities is None else velocities.reshape_as(flat_positions)
+
+    def edge_parameter(value: float | Tensor) -> Tensor:
+        tensor = _as_tensor_like(value, positions)
+        return torch.broadcast_to(tensor, edge_shape).reshape(-1, edges.shape[0])
+
+    result = extension.hooke_spring_force(
+        flat_positions,
         edges,
-        _as_tensor_like(rest_lengths, positions),
-        _as_tensor_like(stiffness, positions),
-        velocities,
-        _as_tensor_like(damping, positions),
+        edge_parameter(rest_lengths),
+        edge_parameter(stiffness),
+        flat_velocities,
+        edge_parameter(damping),
     )
+    return result.reshape(original_shape)
 
 
 def pairwise_gravity_force_native(
@@ -97,6 +113,11 @@ def pairwise_gravity_force_native(
         float(gravitational_constant),
         float(softening),
     )
+
+
+def gravity_neighbor_list_native(positions: Tensor, cutoff: float) -> Tensor:
+    """Build a cutoff neighbor list through the optional C++ extension."""
+    return _load_spring_extension().gravity_neighbor_list(positions, float(cutoff))
 
 
 def native_kernels_status() -> tuple[bool, str | None]:

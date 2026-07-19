@@ -25,6 +25,12 @@ Optional native kernels need PyTorch's extension toolchain:
 pip install -e ".[native]"
 ```
 
+Build once in place to avoid runtime compilation:
+
+```bash
+python setup_native.py build_ext --inplace
+```
+
 ## Quick Example
 
 ```python
@@ -60,7 +66,9 @@ print(residual.abs().max())
 - manipulator dynamics: mass matrices, bias/gravity terms, inverse/forward dynamics
 - planar serial-chain kinematics and Jacobians
 - classical particle mechanics, springs, and pairwise gravity
-- optional C++/Torch spring and gravity kernels
+- batched spring graphs and cutoff gravity neighbor lists
+- holonomic constraints, projection, and RATTLE integration
+- optional prebuilt or JIT-compiled C++/Torch kernels
 - learned Lagrangian and Hamiltonian modules
 
 ## Examples
@@ -77,3 +85,4 @@ Mechanica is pure PyTorch by default. Set `use_native=True` on supported
 helpers, or `MECHANICA_USE_NATIVE=1`, to try optional C++/Torch kernels. Use
 `native_kernels_status()` to check whether the local extension toolchain is
 available. Set `MECHANICA_NATIVE_BUILD_DIR` to choose the build cache location.
+Prebuilt extensions are preferred automatically when present.

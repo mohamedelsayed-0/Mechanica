@@ -11,6 +11,7 @@ from .analytical import HamiltonianSystem, LagrangianSystem, canonical_transform
 from .classical import (
     angular_momentum,
     center_of_mass,
+    gravity_neighbor_list,
     hooke_spring_force,
     kinetic_energy,
     linear_momentum,
@@ -26,6 +27,13 @@ from .control import (
     quadratic_cost,
     rollout_cost,
     tvlqr,
+)
+from .constraints import (
+    constraint_jacobian,
+    constraint_residual,
+    project_positions,
+    project_velocities,
+    rattle_step,
 )
 from .diagnostics import DiagnosticsReport, energy_drift, lagrangian_diagnostics, residual_stats
 from .dynamics import (
@@ -89,6 +97,8 @@ __all__ = [
     "canonical_transformation_residual",
     "center_of_mass",
     "computed_torque",
+    "constraint_jacobian",
+    "constraint_residual",
     "discrete_step",
     "discretize_linearization",
     "energy_drift",
@@ -103,6 +113,7 @@ __all__ = [
     "fit_rollout",
     "forward_dynamics",
     "gravity_forces",
+    "gravity_neighbor_list",
     "hamiltonian_dynamics",
     "hamiltonian_residual_loss",
     "hooke_spring_force",
@@ -133,6 +144,8 @@ __all__ = [
     "planar_link_positions",
     "planar_link_vectors",
     "pairwise_gravity_force",
+    "project_positions",
+    "project_velocities",
     "quadratic_cost",
     "residual_loss",
     "residual_stats",
@@ -140,6 +153,7 @@ __all__ = [
     "rk4_state_step",
     "rollout",
     "rollout_cost",
+    "rattle_step",
     "semi_implicit_euler_step",
     "second_order_dynamics",
     "split_state",

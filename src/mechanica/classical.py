@@ -127,19 +127,27 @@ def pairwise_gravity_force(
     *,
     gravitational_constant: float = 1.0,
     softening: float = 0.0,
+    cutoff: float | None = None,
+    edges: Tensor | None = None,
     use_native: bool | None = None,
 ) -> Tensor:
     """Return pairwise inverse-square gravitational forces.
 
     ``positions`` is shaped ``(bodies, dim)``. Positive ``softening`` avoids
-    singularities by using ``distance^2 + softening^2`` in the denominator.
+    singularities. ``cutoff`` builds a memory-efficient neighbor list; a
+    reusable ``edges`` tensor can be supplied directly instead.
     """
+    if cutoff is not None and edges is not None:
+        raise ValueError("provide cutoff or edges, not both")
+    if positions.ndim != 2:
+        raise ValueError("positions must be shaped (bodies, dim)")
+
     fallback_on_unavailable = False
     if use_native is None:
         use_native = native_springs_requested()
         fallback_on_unavailable = use_native
 
-    if use_native:
+    if use_native and cutoff is None and edges is None:
         try:
             return pairwise_gravity_force_native(
                 positions,
@@ -152,13 +160,32 @@ def pairwise_gravity_force(
                 raise
             warnings.warn(str(exc), RuntimeWarning, stacklevel=2)
 
-    if positions.ndim != 2:
-        raise ValueError("positions must be shaped (bodies, dim)")
     mass = _as_tensor_like(masses, positions)
     if mass.ndim == 0:
         mass = mass.expand(positions.shape[0])
     if mass.ndim != 1 or mass.shape[0] != positions.shape[0]:
         raise ValueError("masses must be a scalar or shaped (bodies,)")
+
+    if cutoff is not None:
+        edges = gravity_neighbor_list(positions, cutoff, use_native=use_native)
+    if edges is not None:
+        edge_index = edges.to(dtype=torch.long, device=positions.device)
+        if edge_index.ndim != 2 or edge_index.shape[-1] != 2:
+            raise ValueError("edges must be shaped (pairs, 2)")
+        i, j = edge_index.unbind(-1)
+        delta = positions[j] - positions[i]
+        distance2 = (delta * delta).sum(-1) + softening * softening
+        inv_distance3 = distance2.clamp_min(torch.finfo(positions.dtype).tiny).pow(-1.5)
+        force = (
+            gravitational_constant
+            * mass[i]
+            * mass[j]
+            * inv_distance3
+        ).unsqueeze(-1) * delta
+        forces = torch.zeros_like(positions)
+        forces.index_add_(0, i, force)
+        forces.index_add_(0, j, -force)
+        return forces
 
     delta = positions.unsqueeze(0) - positions.unsqueeze(1)
     distance2 = (delta * delta).sum(dim=-1) + softening * softening
@@ -184,8 +211,9 @@ def hooke_spring_force(
 ) -> Tensor:
     """Return forces from Hooke springs over a particle graph.
 
-    ``positions`` is shaped ``(bodies, dim)`` and ``edges`` is shaped
-    ``(springs, 2)`` with integer particle indices.
+    ``positions`` is shaped ``(..., bodies, dim)`` and ``edges`` is shaped
+    ``(springs, 2)`` with integer particle indices. Edge parameters broadcast
+    to ``(..., springs)``.
 
     Set ``use_native=True`` to route through the optional C++/Torch extension.
     When ``use_native`` is left as ``None``, setting ``MECHANICA_USE_NATIVE=1``
@@ -212,36 +240,88 @@ def hooke_spring_force(
                 raise
             warnings.warn(str(exc), RuntimeWarning, stacklevel=2)
 
-    if positions.ndim != 2:
-        raise ValueError("hooke_spring_force currently expects positions shaped (bodies, dim)")
+    if positions.ndim < 2:
+        raise ValueError("positions must be shaped (..., bodies, dim)")
     if edges.ndim != 2 or edges.shape[-1] != 2:
         raise ValueError("edges must be shaped (springs, 2)")
 
-    i = edges[:, 0].long()
-    j = edges[:, 1].long()
-    delta = positions[j] - positions[i]
+    edge_index = edges.to(dtype=torch.long, device=positions.device)
+    i, j = edge_index.unbind(-1)
+    delta = positions[..., j, :] - positions[..., i, :]
     length = delta.norm(dim=-1).clamp_min(torch.finfo(positions.dtype).eps)
     direction = delta / length.unsqueeze(-1)
 
     rest = _as_tensor_like(rest_lengths, positions)
     k = _as_tensor_like(stiffness, positions)
-    while rest.ndim < length.ndim:
-        rest = rest.unsqueeze(0)
-    while k.ndim < length.ndim:
-        k = k.unsqueeze(0)
+    rest = torch.broadcast_to(rest, length.shape)
+    k = torch.broadcast_to(k, length.shape)
 
     magnitude = k * (length - rest)
 
     if velocities is not None:
-        rel_vel = velocities[j] - velocities[i]
+        if velocities.shape != positions.shape:
+            raise ValueError("velocities must have the same shape as positions")
+        rel_vel = velocities[..., j, :] - velocities[..., i, :]
         c = _as_tensor_like(damping, positions)
-        magnitude = magnitude + c * (rel_vel * direction).sum(dim=-1)
+        magnitude = magnitude + torch.broadcast_to(c, length.shape) * (rel_vel * direction).sum(-1)
 
     force_edges = magnitude.unsqueeze(-1) * direction
-    forces = torch.zeros_like(positions)
-    forces.index_add_(0, i, force_edges)
-    forces.index_add_(0, j, -force_edges)
-    return forces
+    bodies, dim = positions.shape[-2:]
+    batches = positions.numel() // (bodies * dim)
+    offsets = torch.arange(batches, device=positions.device).unsqueeze(-1) * bodies
+    flat_i = (i.unsqueeze(0) + offsets).reshape(-1)
+    flat_j = (j.unsqueeze(0) + offsets).reshape(-1)
+    flat_force = force_edges.reshape(-1, dim)
+    forces = torch.zeros_like(positions).reshape(-1, dim)
+    forces.index_add_(0, flat_i, flat_force)
+    forces.index_add_(0, flat_j, -flat_force)
+    return forces.reshape_as(positions)
+
+
+def gravity_neighbor_list(
+    positions: Tensor,
+    cutoff: float,
+    *,
+    block_size: int = 1024,
+    use_native: bool | None = None,
+) -> Tensor:
+    """Return unique body pairs separated by less than ``cutoff``.
+
+    The fallback uses bounded ``block_size * bodies`` memory instead of a full
+    pairwise displacement tensor.
+    """
+    if positions.ndim != 2:
+        raise ValueError("positions must be shaped (bodies, dim)")
+    if cutoff <= 0:
+        raise ValueError("cutoff must be positive")
+    if block_size <= 0:
+        raise ValueError("block_size must be positive")
+
+    requested = native_springs_requested() if use_native is None else use_native
+    if requested and positions.device.type == "cpu":
+        from ._native import gravity_neighbor_list_native
+
+        try:
+            return gravity_neighbor_list_native(positions, cutoff)
+        except NativeExtensionUnavailable:
+            if use_native is True:
+                raise
+
+    pairs = []
+    count = positions.shape[0]
+    indices = torch.arange(count, device=positions.device)
+    cutoff2 = cutoff * cutoff
+    for start in range(0, count, block_size):
+        stop = min(start + block_size, count)
+        delta = positions[start:stop, None] - positions[None]
+        distance2 = (delta * delta).sum(-1)
+        mask = (distance2 < cutoff2) & (indices[None] > indices[start:stop, None])
+        left, right = mask.nonzero(as_tuple=True)
+        if left.numel():
+            pairs.append(torch.stack((left + start, right), dim=-1))
+    if pairs:
+        return torch.cat(pairs)
+    return torch.empty((0, 2), dtype=torch.long, device=positions.device)
 
 
 def newton_residual(

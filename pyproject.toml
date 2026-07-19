@@ -27,7 +27,8 @@ dev = [
   "ruff>=0.5"
 ]
 native = [
-  "ninja>=1.11"
+  "ninja>=1.11",
+  "setuptools>=68"
 ]
 
 [tool.hatch.build.targets.wheel]

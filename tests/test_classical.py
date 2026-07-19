@@ -5,6 +5,7 @@ import mechanica.classical as classical
 from mechanica import (
     NativeExtensionUnavailable,
     center_of_mass,
+    gravity_neighbor_list,
     hooke_spring_force,
     kinetic_energy,
     linear_momentum,
@@ -38,6 +39,22 @@ def test_hooke_spring_force_balances_pair() -> None:
     assert torch.allclose(forces[1], torch.tensor([-10.0, 0.0]))
 
 
+def test_hooke_spring_force_supports_batches_and_edge_parameters() -> None:
+    positions = torch.tensor(
+        [[[0.0, 0.0], [2.0, 0.0]], [[0.0, 0.0], [3.0, 0.0]]]
+    )
+    forces = hooke_spring_force(
+        positions,
+        torch.tensor([[0, 1]]),
+        rest_lengths=torch.tensor([[1.0], [2.0]]),
+        stiffness=10.0,
+    )
+
+    assert forces.shape == positions.shape
+    assert torch.allclose(forces[:, 0], torch.tensor([[10.0, 0.0], [10.0, 0.0]]))
+    assert torch.allclose(forces.sum(-2), torch.zeros(2, 2))
+
+
 def test_pairwise_gravity_force_balances_pair() -> None:
     positions = torch.tensor([[0.0, 0.0], [2.0, 0.0]])
     masses = torch.tensor([2.0, 3.0])
@@ -47,6 +64,16 @@ def test_pairwise_gravity_force_balances_pair() -> None:
     assert torch.allclose(forces[0], torch.tensor([15.0, 0.0]))
     assert torch.allclose(forces[1], torch.tensor([-15.0, 0.0]))
     assert torch.allclose(forces.sum(dim=0), torch.zeros(2))
+
+
+def test_gravity_neighbor_list_limits_interactions() -> None:
+    positions = torch.tensor([[0.0, 0.0], [1.0, 0.0], [3.0, 0.0]])
+    pairs = gravity_neighbor_list(positions, 1.5, use_native=False, block_size=1)
+    forces = pairwise_gravity_force(positions, 1.0, edges=pairs)
+
+    assert torch.equal(pairs, torch.tensor([[0, 1]]))
+    assert torch.allclose(forces[2], torch.zeros(2))
+    assert torch.allclose(forces.sum(0), torch.zeros(2))
 
 
 def test_hooke_spring_force_explicit_native_failure_is_visible(monkeypatch: pytest.MonkeyPatch) -> None:
