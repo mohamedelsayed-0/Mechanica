@@ -140,10 +140,26 @@ def inverse_dynamics_rnea(
     *,
     gravity: Tensor | None = None,
     external_forces: Tensor | None = None,
+    use_native: bool | None = None,
 ) -> Tensor:
     """Compute generalized forces with the linear-time recursive Newton–Euler algorithm."""
     if q.shape != qdot.shape or q.shape != qddot.shape:
         raise ValueError("q, qdot, and qddot must have matching shapes")
+    requested = native_springs_requested() if use_native is None else use_native
+    if requested:
+        from ._native import inverse_dynamics_rnea_native
+
+        native_gravity = (
+            torch.tensor([0, 0, -9.80665], dtype=q.dtype, device=q.device)
+            if gravity is None else gravity.to(q)
+        )
+        try:
+            return inverse_dynamics_rnea_native(
+                model, q, qdot, qddot, native_gravity, external_forces
+            )
+        except NativeExtensionUnavailable:
+            if use_native is True:
+                raise
     if q.ndim > 1:
         sample_shape = q.shape[:-1]
         flat_external = None if external_forces is None else external_forces.reshape(-1, model.links, 6)
@@ -155,6 +171,7 @@ def inverse_dynamics_rnea(
                 qddot_i,
                 gravity=gravity,
                 external_forces=None if flat_external is None else flat_external[index],
+                use_native=False,
             )
             for index, (q_i, qdot_i, qddot_i) in enumerate(
                 zip(q.reshape(-1, model.dof), qdot.reshape(-1, model.dof), qddot.reshape(-1, model.dof))
@@ -210,10 +227,24 @@ def _motion_cross_vector(left: Tensor, right: Tensor) -> Tensor:
                       torch.linalg.cross(linear, right_angular) + torch.linalg.cross(angular, right_linear)))
 
 
-def mass_matrix_crba(model: RobotModel, q: Tensor) -> Tensor:
+def mass_matrix_crba(
+    model: RobotModel,
+    q: Tensor,
+    *,
+    use_native: bool | None = None,
+) -> Tensor:
     """Compute the joint-space mass matrix with the composite rigid-body algorithm."""
+    requested = native_springs_requested() if use_native is None else use_native
+    if requested:
+        from ._native import mass_matrix_crba_native
+
+        try:
+            return mass_matrix_crba_native(model, q)
+        except NativeExtensionUnavailable:
+            if use_native is True:
+                raise
     if q.ndim > 1:
-        values = [mass_matrix_crba(model, item) for item in q.reshape(-1, model.dof)]
+        values = [mass_matrix_crba(model, item, use_native=False) for item in q.reshape(-1, model.dof)]
         return torch.stack(values).reshape(*q.shape[:-1], model.dof, model.dof)
     transforms, subspaces = _tree_terms(model, q)
     composite = list(spatial_inertias(model).to(q).unbind(0))
@@ -249,13 +280,29 @@ def forward_dynamics_aba(
     forces: Tensor,
     *,
     gravity: Tensor | None = None,
+    use_native: bool | None = None,
 ) -> Tensor:
     """Compute accelerations with ABA, falling back to CRBA for coupled mimic joints."""
     if q.shape != qdot.shape or q.shape != forces.shape:
         raise ValueError("q, qdot, and forces must have matching shapes")
+    requested = native_springs_requested() if use_native is None else use_native
+    if requested:
+        from ._native import forward_dynamics_aba_native
+
+        native_gravity = (
+            torch.tensor([0, 0, -9.80665], dtype=q.dtype, device=q.device)
+            if gravity is None else gravity.to(q)
+        )
+        try:
+            return forward_dynamics_aba_native(model, q, qdot, forces, native_gravity)
+        except NativeExtensionUnavailable:
+            if use_native is True:
+                raise
     if q.ndim > 1:
         values = [
-            forward_dynamics_aba(model, q_i, qdot_i, force_i, gravity=gravity)
+            forward_dynamics_aba(
+                model, q_i, qdot_i, force_i, gravity=gravity, use_native=False
+            )
             for q_i, qdot_i, force_i in zip(
                 q.reshape(-1, model.dof),
                 qdot.reshape(-1, model.dof),
@@ -265,8 +312,10 @@ def forward_dynamics_aba(
         return torch.stack(values).reshape_as(q)
     active = model.q_indices[model.q_indices >= 0]
     if active.unique().numel() != active.numel():
-        bias = inverse_dynamics_rnea(model, q, qdot, torch.zeros_like(q), gravity=gravity)
-        return torch.linalg.solve(mass_matrix_crba(model, q), forces - bias)
+        bias = inverse_dynamics_rnea(
+            model, q, qdot, torch.zeros_like(q), gravity=gravity, use_native=False
+        )
+        return torch.linalg.solve(mass_matrix_crba(model, q, use_native=False), forces - bias)
     gravity = torch.tensor([0, 0, -9.80665], dtype=q.dtype, device=q.device) if gravity is None else gravity.to(q)
     transforms, subspaces = _tree_terms(model, q)
     articulated = list(spatial_inertias(model).to(q).unbind(0))

@@ -10,7 +10,7 @@ setup(
     ext_modules=[
         CppExtension(
             "mechanica._mechanica_native",
-            ["src/mechanica/native/spring.cpp"],
+            ["src/mechanica/native/spring.cpp", "src/mechanica/native/robotics.cpp"],
             extra_compile_args={"cxx": ["/O2"] if os.name == "nt" else ["-O3"]},
         )
     ],

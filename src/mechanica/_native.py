@@ -43,9 +43,10 @@ def _load_spring_extension() -> Any:
     except Exception as exc:  # pragma: no cover - depends on local torch install
         raise NativeExtensionUnavailable("torch C++ extension loader is unavailable") from exc
 
-    source = Path(__file__).with_name("native") / "spring.cpp"
-    if not source.exists():
-        raise NativeExtensionUnavailable(f"native source file is missing: {source}")
+    source_dir = Path(__file__).with_name("native")
+    sources = [source_dir / "spring.cpp", source_dir / "robotics.cpp"]
+    if any(not source.exists() for source in sources):
+        raise NativeExtensionUnavailable(f"native source files are missing from {source_dir}")
 
     extra_cflags = ["/O2"] if os.name == "nt" else ["-O3"]
     verbose = os.environ.get(_VERBOSE_ENV, "").strip().lower() in _TRUTHY
@@ -56,7 +57,7 @@ def _load_spring_extension() -> Any:
     try:
         return load(
             name="mechanica_native_springs",
-            sources=[str(source)],
+            sources=[str(source) for source in sources],
             build_directory=build_directory,
             extra_cflags=extra_cflags,
             with_cuda=False,
@@ -138,6 +139,56 @@ def forward_kinematics_native(model: Any, q: Tensor) -> Tensor:
         model.multipliers,
         model.offsets,
         q,
+    )
+
+
+def _robot_dynamics_arguments(model: Any) -> tuple[Tensor, ...]:
+    return (
+        model.parents,
+        model.joint_types,
+        model.q_indices,
+        model.axes,
+        model.joint_origins,
+        model.multipliers,
+        model.offsets,
+        model.masses,
+        model.centers_of_mass,
+        model.inertias,
+    )
+
+
+def inverse_dynamics_rnea_native(
+    model: Any,
+    q: Tensor,
+    qdot: Tensor,
+    qddot: Tensor,
+    gravity: Tensor,
+    external_forces: Tensor | None = None,
+) -> Tensor:
+    """Evaluate batched RNEA through the registered native operator."""
+    _load_spring_extension()
+    return torch.ops.mechanica.rnea(
+        *_robot_dynamics_arguments(model), q, qdot, qddot, gravity, external_forces
+    )
+
+
+def mass_matrix_crba_native(model: Any, q: Tensor) -> Tensor:
+    """Evaluate batched CRBA through the registered native operator."""
+    _load_spring_extension()
+    return torch.ops.mechanica.crba(*_robot_dynamics_arguments(model), q)
+
+
+def forward_dynamics_aba_native(
+    model: Any,
+    q: Tensor,
+    qdot: Tensor,
+    generalized_forces: Tensor,
+    gravity: Tensor,
+) -> Tensor:
+    """Evaluate batched ABA through the registered native operator."""
+    _load_spring_extension()
+    return torch.ops.mechanica.aba(
+        *_robot_dynamics_arguments(model), q, qdot, generalized_forces, gravity
     )
 
 
