@@ -80,6 +80,7 @@ print(residual.abs().max())
 python examples/pendulum_tvlqr.py
 python examples/two_link_kinematics.py
 python examples/native_spring_benchmark.py
+python examples/native_robotics_benchmark.py
 python examples/urdf_robotics.py
 ```
 
@@ -96,8 +97,9 @@ mass = mass_matrix_crba(model, q)
 (poses[-1, :3, 3].square().sum() + mass.trace()).backward()
 ```
 
-The optional native extension registers batched `SO(3)` and robot-tree forward
-kinematics as Torch operators, preserving autograd and device dispatch.
+The optional native extension registers batched `SO(3)`, robot-tree forward
+kinematics, RNEA, CRBA, and ABA as Torch operators. They preserve autograd,
+second derivatives, dtype/device dispatch, and `torch.compile` shape tracing.
 
 ## Native Kernels
 
