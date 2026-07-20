@@ -11,6 +11,95 @@ ConstraintFn = Callable[[Tensor], Tensor]
 ForceFn = Callable[..., Tensor]
 
 
+def frame_position_constraint(model, link: int | str, target: Tensor) -> ConstraintFn:
+    """Create a generalized-coordinate constraint for a world-frame position."""
+    from .rigid_body import forward_kinematics
+
+    index = model.link_index(link) if isinstance(link, str) else link
+    return lambda q: forward_kinematics(model, q)[..., index, :3, 3] - target.to(q)
+
+
+def frame_pose_constraint(model, link: int | str, target: Tensor) -> ConstraintFn:
+    """Create a six-dimensional world-frame pose constraint."""
+    from .rigid_body import forward_kinematics
+    from .spatial import so3_log
+
+    index = model.link_index(link) if isinstance(link, str) else link
+
+    def residual(q: Tensor) -> Tensor:
+        pose = forward_kinematics(model, q)[..., index, :, :]
+        rotation_error = so3_log(target[:3, :3].to(q).T @ pose[..., :3, :3])
+        return torch.cat((rotation_error, pose[..., :3, 3] - target[:3, 3].to(q)), -1)
+
+    return residual
+
+
+def frame_loop_constraint(
+    model,
+    first: int | str,
+    second: int | str,
+    target_relative: Tensor | None = None,
+) -> ConstraintFn:
+    """Create a loop-closure constraint between two robot frames."""
+    from .rigid_body import forward_kinematics
+    from .spatial import se3_log
+
+    first_index = model.link_index(first) if isinstance(first, str) else first
+    second_index = model.link_index(second) if isinstance(second, str) else second
+
+    def residual(q: Tensor) -> Tensor:
+        poses = forward_kinematics(model, q)
+        relative = torch.linalg.solve(poses[..., first_index, :, :], poses[..., second_index, :, :])
+        if target_relative is not None:
+            relative = torch.linalg.solve(target_relative.to(q), relative)
+        return se3_log(relative)
+
+    return residual
+
+
+def joint_coupling_constraint(
+    source: int,
+    target: int,
+    *,
+    multiplier: float = 1.0,
+    offset: float = 0.0,
+) -> ConstraintFn:
+    """Create ``q[target] - multiplier * q[source] - offset = 0``."""
+    return lambda q: (q[..., target] - multiplier * q[..., source] - offset).unsqueeze(-1)
+
+
+def baumgarte_acceleration(
+    position_residual: Tensor,
+    velocity_residual: Tensor,
+    *,
+    frequency: float = 10.0,
+    damping_ratio: float = 1.0,
+) -> Tensor:
+    """Return a stabilizing target acceleration for a constraint."""
+    return -2 * damping_ratio * frequency * velocity_residual - frequency**2 * position_residual
+
+
+def constrained_forward_dynamics(
+    mass_matrix: Tensor,
+    bias: Tensor,
+    forces: Tensor,
+    jacobian: Tensor,
+    *,
+    target_acceleration: Tensor | None = None,
+) -> tuple[Tensor, Tensor]:
+    """Solve mass-weighted constrained dynamics and return acceleration and multipliers."""
+    free = torch.linalg.solve(mass_matrix, forces - bias)
+    inverse_mass_jt = torch.linalg.solve(mass_matrix, jacobian.transpose(-1, -2))
+    target = torch.zeros(*jacobian.shape[:-2], jacobian.shape[-2], dtype=free.dtype, device=free.device)
+    if target_acceleration is not None:
+        target = target_acceleration.to(free)
+    multiplier = torch.linalg.solve(
+        jacobian @ inverse_mass_jt, (target - (jacobian @ free.unsqueeze(-1)).squeeze(-1)).unsqueeze(-1)
+    ).squeeze(-1)
+    acceleration = free + (inverse_mass_jt @ multiplier.unsqueeze(-1)).squeeze(-1)
+    return acceleration, multiplier
+
+
 def constraint_residual(constraint_fn: ConstraintFn, positions: Tensor) -> Tensor:
     """Evaluate holonomic constraints as a flat residual vector."""
     value = constraint_fn(positions)

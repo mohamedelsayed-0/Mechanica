@@ -1,11 +1,13 @@
 import torch
 
 from mechanica.rigid_body import (
+    IKTarget,
     forward_dynamics_aba,
     forward_kinematics,
     geometric_jacobian,
     inverse_dynamics_rnea,
     inverse_kinematics,
+    inverse_kinematics_tasks,
     mass_matrix_crba,
 )
 from mechanica.robot_model import load_urdf
@@ -74,3 +76,10 @@ def test_inverse_kinematics_reaches_planar_target() -> None:
     )
     position = forward_kinematics(model, q)[model.link_index("tool"), :3, 3]
     assert torch.allclose(position, torch.tensor([0.0, 1.0, 0.0], dtype=q.dtype), atol=1e-5)
+
+    multi_q = inverse_kinematics_tasks(
+        model,
+        torch.zeros(1, dtype=torch.float64),
+        [IKTarget("tool", position=torch.tensor([0.0, 1.0, 0.0], dtype=torch.float64))],
+    )
+    assert torch.allclose(multi_q, q, atol=1e-5)

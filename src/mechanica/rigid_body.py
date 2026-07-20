@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import torch
 
 from ._native import NativeExtensionUnavailable, native_springs_requested
@@ -9,6 +11,14 @@ from .robot_model import PRISMATIC, RobotModel
 from .spatial import force_cross, skew, so3_exp, so3_log, transform
 
 Tensor = torch.Tensor
+
+
+@dataclass(frozen=True)
+class IKTarget:
+    link: int | str
+    position: Tensor | None = None
+    rotation: Tensor | None = None
+    weight: float = 1.0
 
 
 def _joint_motion(model: RobotModel, link: int, q: Tensor) -> Tensor:
@@ -312,22 +322,82 @@ def inverse_kinematics(
     damping: float = 1e-4,
     max_iterations: int = 100,
     tolerance: float = 1e-6,
+    joint_limit_gain: float = 0.0,
 ) -> Tensor:
     """Solve position or pose IK with damped least squares and joint limits."""
+    return inverse_kinematics_tasks(
+        model,
+        initial_q,
+        [IKTarget(link, target_position, target_rotation)],
+        damping=damping,
+        max_iterations=max_iterations,
+        tolerance=tolerance,
+        joint_limit_gain=joint_limit_gain,
+    )
+
+
+def joint_limit_avoidance(q: Tensor, limits: Tensor) -> Tensor:
+    """Return a bounded direction away from finite joint limits."""
+    limits = limits.to(q)
+    lower_distance = (q - limits[:, 0]).clamp_min(1e-4)
+    upper_distance = (limits[:, 1] - q).clamp_min(1e-4)
+    finite = torch.isfinite(limits).all(-1)
+    direction = lower_distance.reciprocal().square() - upper_distance.reciprocal().square()
+    return torch.where(finite, direction, torch.zeros_like(direction)).tanh()
+
+
+def null_space_projector(jacobian: Tensor, pseudoinverse: Tensor | None = None) -> Tensor:
+    """Return ``I - J# J`` for secondary IK and control tasks."""
+    if pseudoinverse is None:
+        pseudoinverse = torch.linalg.pinv(jacobian)
+    identity = torch.eye(jacobian.shape[-1], dtype=jacobian.dtype, device=jacobian.device)
+    return identity - pseudoinverse @ jacobian
+
+
+def inverse_kinematics_tasks(
+    model: RobotModel,
+    initial_q: Tensor,
+    targets: list[IKTarget],
+    *,
+    damping: float = 1e-4,
+    max_iterations: int = 100,
+    tolerance: float = 1e-6,
+    joint_limit_gain: float = 0.0,
+) -> Tensor:
+    """Solve weighted multi-frame IK with an optional joint-limit null-space task."""
+    if not targets:
+        raise ValueError("at least one IK target is required")
     q = initial_q
-    link_index = model.link_index(link) if isinstance(link, str) else link
     for _ in range(max_iterations):
-        pose = forward_kinematics(model, q)[link_index]
-        jacobian = geometric_jacobian(model, q, link_index)
-        error = target_position.to(q) - pose[:3, 3]
-        if target_rotation is None:
-            jacobian = jacobian[3:]
-        else:
-            error = torch.cat((so3_log(target_rotation.to(q) @ pose[:3, :3].T), error))
+        poses = forward_kinematics(model, q)
+        errors, jacobians = [], []
+        for target in targets:
+            link_index = model.link_index(target.link) if isinstance(target.link, str) else target.link
+            pose = poses[link_index]
+            jacobian = geometric_jacobian(model, q, link_index)
+            parts, rows = [], []
+            if target.rotation is not None:
+                parts.append(so3_log(target.rotation.to(q) @ pose[:3, :3].T))
+                rows.append(jacobian[:3])
+            if target.position is not None:
+                parts.append(target.position.to(q) - pose[:3, 3])
+                rows.append(jacobian[3:])
+            if not parts:
+                raise ValueError("each IK target needs a position or rotation")
+            errors.append(target.weight * torch.cat(parts))
+            jacobians.append(target.weight * torch.cat(rows))
+        error = torch.cat(errors)
+        jacobian = torch.cat(jacobians)
         if error.detach().norm().item() <= tolerance:
             break
         identity = torch.eye(error.numel(), dtype=q.dtype, device=q.device)
-        q = q + jacobian.T @ torch.linalg.solve(jacobian @ jacobian.T + damping * identity, error)
+        pseudoinverse = jacobian.T @ torch.linalg.solve(
+            jacobian @ jacobian.T + damping * identity, identity
+        )
+        change = pseudoinverse @ error
+        if joint_limit_gain:
+            change = change + joint_limit_gain * null_space_projector(jacobian, pseudoinverse) @ joint_limit_avoidance(q, model.limits)
+        q = q + change
         finite = torch.isfinite(model.limits).all(-1).to(q.device)
         q = torch.where(finite, q.clamp(model.limits[:, 0].to(q), model.limits[:, 1].to(q)), q)
     return q

@@ -13,6 +13,7 @@ URDF = """
       <mass value="2"/>
       <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.2" iyz="0" izz="0.3"/>
     </inertial>
+    <collision><origin xyz="0.5 0 0"/><geometry><sphere radius="0.2"/></geometry></collision>
   </link>
   <joint name="shoulder" type="revolute">
     <parent link="base"/><child link="tip"/>
@@ -40,3 +41,5 @@ def test_load_urdf_packs_tree_and_inertia() -> None:
     assert model.joint_types.tolist() == [0, REVOLUTE]
     assert torch.allclose(model.centers_of_mass[1], torch.tensor([0.5, 0, 0], dtype=model.masses.dtype))
     assert torch.equal(model.limits[0], torch.tensor([-1, 1], dtype=model.limits.dtype))
+    assert model.collision_links.tolist() == [1]
+    assert torch.allclose(model.collision_parameters[0], torch.tensor([0.2, 0, 0], dtype=model.masses.dtype))

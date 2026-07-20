@@ -12,6 +12,7 @@ from .spatial import transform
 
 Tensor = torch.Tensor
 FIXED, REVOLUTE, PRISMATIC = 0, 1, 2
+SPHERE, BOX, CYLINDER, MESH = 1, 2, 3, 4
 
 
 def _numbers(text: str | None, default: tuple[float, ...]) -> list[float]:
@@ -53,6 +54,11 @@ class RobotModel:
     centers_of_mass: Tensor
     inertias: Tensor
     limits: Tensor
+    collision_links: Tensor
+    collision_types: Tensor
+    collision_poses: Tensor
+    collision_parameters: Tensor
+    collision_meshes: tuple[str, ...]
 
     @property
     def dof(self) -> int:
@@ -63,13 +69,14 @@ class RobotModel:
         return len(self.link_names)
 
     def to(self, *args, **kwargs) -> RobotModel:
-        fields = {
-            name: getattr(self, name).to(*args, **kwargs)
-            for name in (
-                "parents", "joint_types", "q_indices", "axes", "joint_origins",
-                "multipliers", "offsets", "masses", "centers_of_mass", "inertias", "limits"
-            )
-        }
+        floating = (
+            "axes", "joint_origins", "multipliers", "offsets", "masses",
+            "centers_of_mass", "inertias", "limits", "collision_poses", "collision_parameters",
+        )
+        fields = {name: getattr(self, name).to(*args, **kwargs) for name in floating}
+        device = fields["masses"].device
+        for name in ("parents", "joint_types", "q_indices", "collision_links", "collision_types"):
+            fields[name] = getattr(self, name).to(device=device)
         return replace(self, **fields)
 
     def link_index(self, name: str) -> int:
@@ -109,9 +116,33 @@ def load_urdf(source: str | Path, *, dtype: torch.dtype = torch.float64) -> Robo
     index = {name: position for position, name in enumerate(order)}
     parents, types, q_indices, axes, origins, multipliers, offsets = [], [], [], [], [], [], []
     masses, centers, inertias, joint_names = [], [], [], []
+    collision_links, collision_types, collision_poses, collision_parameters, collision_meshes = (
+        [], [], [], [], []
+    )
 
     for name in order:
         link = links[name]
+        for collision in link.findall("collision"):
+            geometry = collision.find("geometry")
+            kind = next((key for key in ("sphere", "box", "cylinder", "mesh") if geometry.find(key) is not None), None)
+            if kind is None:
+                continue
+            shape = geometry.find(kind)
+            collision_links.append(index[name])
+            collision_poses.append(_origin(collision.find("origin"), dtype=dtype))
+            collision_meshes.append(shape.get("filename", "") if kind == "mesh" else "")
+            if kind == "sphere":
+                collision_types.append(SPHERE)
+                collision_parameters.append([float(shape.get("radius")), 0, 0])
+            elif kind == "box":
+                collision_types.append(BOX)
+                collision_parameters.append([value / 2 for value in _numbers(shape.get("size"), (0, 0, 0))])
+            elif kind == "cylinder":
+                collision_types.append(CYLINDER)
+                collision_parameters.append([float(shape.get("radius")), float(shape.get("length")), 0])
+            else:
+                collision_types.append(MESH)
+                collision_parameters.append(_numbers(shape.get("scale"), (1, 1, 1)))
         joint = joints.get(name)
         if joint is None:
             parents.append(-1)
@@ -174,4 +205,7 @@ def load_urdf(source: str | Path, *, dtype: torch.dtype = torch.float64) -> Robo
         torch.stack(origins), torch.tensor(multipliers, dtype=dtype),
         torch.tensor(offsets, dtype=dtype), torch.tensor(masses, dtype=dtype),
         torch.tensor(centers, dtype=dtype), torch.stack(inertias), limits,
+        torch.tensor(collision_links), torch.tensor(collision_types),
+        torch.stack(collision_poses) if collision_poses else torch.empty(0, 4, 4, dtype=dtype),
+        torch.tensor(collision_parameters, dtype=dtype).reshape(-1, 3), tuple(collision_meshes),
     )
