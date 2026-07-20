@@ -32,9 +32,25 @@ def _as_tensor_like(value: float | Tensor, like: Tensor) -> Tensor:
 
 
 @lru_cache(maxsize=1)
+def _register_fake_kernels() -> None:
+    def vector_shape(*args: Any) -> Tensor:
+        return torch.empty_like(args[10])
+
+    def matrix_shape(*args: Any) -> Tensor:
+        q = args[10]
+        return q.new_empty((*q.shape, q.shape[-1]))
+
+    torch.library.register_fake("mechanica::rnea", vector_shape)
+    torch.library.register_fake("mechanica::crba", matrix_shape)
+    torch.library.register_fake("mechanica::aba", vector_shape)
+
+
+@lru_cache(maxsize=1)
 def _load_spring_extension() -> Any:
     try:
-        return importlib.import_module("mechanica._mechanica_native")
+        extension = importlib.import_module("mechanica._mechanica_native")
+        _register_fake_kernels()
+        return extension
     except ImportError:
         pass
 
@@ -55,7 +71,7 @@ def _load_spring_extension() -> Any:
         Path(build_directory).mkdir(parents=True, exist_ok=True)
 
     try:
-        return load(
+        extension = load(
             name="mechanica_native_springs",
             sources=[str(source) for source in sources],
             build_directory=build_directory,
@@ -63,6 +79,8 @@ def _load_spring_extension() -> Any:
             with_cuda=False,
             verbose=verbose,
         )
+        _register_fake_kernels()
+        return extension
     except Exception as exc:  # pragma: no cover - depends on compiler availability
         msg = f"could not compile or load the mechanica spring C++ extension: {exc}"
         raise NativeExtensionUnavailable(msg) from exc

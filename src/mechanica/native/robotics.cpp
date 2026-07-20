@@ -14,6 +14,12 @@ void check(bool condition, const char* message) {
     TORCH_CHECK(condition, message);
 }
 
+bool shape_only(const Tensor& tensor) {
+    const auto* impl = tensor.unsafeGetTensorImpl();
+    return tensor.is_meta() ||
+        (tensor.numel() > 0 && impl->has_storage() && impl->storage().data() == nullptr);
+}
+
 Tensor matvec(const Tensor& matrix, const Tensor& vector) {
     return matrix.matmul(vector.unsqueeze(-1)).squeeze(-1);
 }
@@ -299,6 +305,7 @@ Tensor native_rnea(
     Tensor parents, Tensor joint_types, Tensor q_indices, Tensor axes, Tensor origins,
     Tensor multipliers, Tensor offsets, Tensor masses, Tensor centers, Tensor inertias,
     Tensor q, Tensor qdot, Tensor qddot, Tensor gravity, c10::optional<Tensor> external_forces) {
+    if (shape_only(q)) return torch::empty_like(q);
     check(q.sizes() == qdot.sizes() && q.sizes() == qddot.sizes(), "state shapes must match");
     auto shape = q.sizes().vec();
     auto flat_q = q.reshape({-1, q.size(-1)});
@@ -314,6 +321,7 @@ Tensor native_rnea(
 Tensor native_crba(
     Tensor parents, Tensor joint_types, Tensor q_indices, Tensor axes, Tensor origins,
     Tensor multipliers, Tensor offsets, Tensor masses, Tensor centers, Tensor inertias, Tensor q) {
+    if (shape_only(q)) return torch::empty(sample_shape(q, true), q.options());
     auto result = crba_impl(
         topology(parents, joint_types, q_indices), axes, origins, multipliers, offsets,
         masses, centers, inertias, q.reshape({-1, q.size(-1)}));
@@ -324,6 +332,7 @@ Tensor native_aba(
     Tensor parents, Tensor joint_types, Tensor q_indices, Tensor axes, Tensor origins,
     Tensor multipliers, Tensor offsets, Tensor masses, Tensor centers, Tensor inertias,
     Tensor q, Tensor qdot, Tensor generalized_forces, Tensor gravity) {
+    if (shape_only(q)) return torch::empty_like(q);
     check(q.sizes() == qdot.sizes() && q.sizes() == generalized_forces.sizes(),
           "state and force shapes must match");
     auto tree = topology(parents, joint_types, q_indices);
@@ -409,25 +418,6 @@ Tensor native_aba(
     return torch::stack(result, -1).reshape(shape);
 }
 
-Tensor vector_meta(
-    Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor,
-    Tensor q, Tensor, Tensor, Tensor, c10::optional<Tensor>) {
-    return torch::empty_like(q, q.options().device(torch::kMeta));
-}
-
-Tensor matrix_meta(
-    Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor q) {
-    auto shape = q.sizes().vec();
-    shape.push_back(q.size(-1));
-    return torch::empty(shape, q.options().device(torch::kMeta));
-}
-
-Tensor aba_meta(
-    Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor,
-    Tensor q, Tensor, Tensor, Tensor) {
-    return torch::empty_like(q, q.options().device(torch::kMeta));
-}
-
 TORCH_LIBRARY_FRAGMENT(mechanica, m) {
     m.def("rnea(Tensor parents, Tensor joint_types, Tensor q_indices, Tensor axes, Tensor origins, Tensor multipliers, Tensor offsets, Tensor masses, Tensor centers, Tensor inertias, Tensor q, Tensor qdot, Tensor qddot, Tensor gravity, Tensor? external_forces) -> Tensor");
     m.def("crba(Tensor parents, Tensor joint_types, Tensor q_indices, Tensor axes, Tensor origins, Tensor multipliers, Tensor offsets, Tensor masses, Tensor centers, Tensor inertias, Tensor q) -> Tensor");
@@ -440,14 +430,14 @@ TORCH_LIBRARY_IMPL(mechanica, CompositeExplicitAutograd, m) {
     m.impl("aba", &native_aba);
 }
 
-TORCH_LIBRARY_IMPL(mechanica, Autograd, m) {
+TORCH_LIBRARY_IMPL(mechanica, AutogradCPU, m) {
     m.impl("rnea", &native_rnea);
     m.impl("crba", &native_crba);
     m.impl("aba", &native_aba);
 }
 
-TORCH_LIBRARY_IMPL(mechanica, Meta, m) {
-    m.impl("rnea", &vector_meta);
-    m.impl("crba", &matrix_meta);
-    m.impl("aba", &aba_meta);
+TORCH_LIBRARY_IMPL(mechanica, AutogradCUDA, m) {
+    m.impl("rnea", &native_rnea);
+    m.impl("crba", &native_crba);
+    m.impl("aba", &native_aba);
 }
