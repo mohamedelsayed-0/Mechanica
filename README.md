@@ -65,6 +65,9 @@ print(residual.abs().max())
 - state-space rollout, linearization, LQR, TVLQR, and feedback rollout
 - manipulator dynamics: mass matrices, bias/gravity terms, inverse/forward dynamics
 - planar serial-chain kinematics and Jacobians
+- URDF robot trees, batched SE(3) kinematics, RNEA, CRBA, and ABA
+- inverse kinematics, operational-space control, constraints, and collision costs
+- batched iLQR, DDP, MPC helpers, and direct-collocation defects
 - classical particle mechanics, springs, and pairwise gravity
 - batched spring graphs and cutoff gravity neighbor lists
 - holonomic constraints, projection, and RATTLE integration
@@ -77,7 +80,24 @@ print(residual.abs().max())
 python examples/pendulum_tvlqr.py
 python examples/two_link_kinematics.py
 python examples/native_spring_benchmark.py
+python examples/urdf_robotics.py
 ```
+
+## Differentiable Robots
+
+```python
+import torch
+from mechanica import forward_kinematics, load_urdf, mass_matrix_crba
+
+model = load_urdf("robot.urdf").to(dtype=torch.float32)
+q = torch.zeros(model.dof, requires_grad=True)
+poses = forward_kinematics(model, q)
+mass = mass_matrix_crba(model, q)
+(poses[-1, :3, 3].square().sum() + mass.trace()).backward()
+```
+
+The optional native extension registers batched `SO(3)` and robot-tree forward
+kinematics as Torch operators, preserving autograd and device dispatch.
 
 ## Native Kernels
 

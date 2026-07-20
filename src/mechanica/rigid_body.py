@@ -65,6 +65,10 @@ def geometric_jacobian(model: RobotModel, q: Tensor, link: int | str) -> Tensor:
     """Return an angular-first world-frame Jacobian shaped ``(..., 6, dof)``."""
     link = model.link_index(link) if isinstance(link, str) else link
     world = forward_kinematics(model, q)
+    return _geometric_jacobian(model, q, link, world)
+
+
+def _geometric_jacobian(model: RobotModel, q: Tensor, link: int, world: Tensor) -> Tensor:
     point = world[..., link, :3, 3]
     columns = [torch.zeros(*q.shape[:-1], 6, dtype=q.dtype, device=q.device) for _ in range(model.dof)]
     current = link
@@ -374,7 +378,7 @@ def inverse_kinematics_tasks(
         for target in targets:
             link_index = model.link_index(target.link) if isinstance(target.link, str) else target.link
             pose = poses[link_index]
-            jacobian = geometric_jacobian(model, q, link_index)
+            jacobian = _geometric_jacobian(model, q, link_index, poses)
             parts, rows = [], []
             if target.rotation is not None:
                 parts.append(so3_log(target.rotation.to(q) @ pose[:3, :3].T))

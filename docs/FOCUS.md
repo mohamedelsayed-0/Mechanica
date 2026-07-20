@@ -24,6 +24,8 @@ Mechanica should make mechanics differentiable and inspectable:
 - trajectory fitting
 - physics residuals as Torch losses
 - differentiable integrators
+- differentiable 3D robot kinematics and rigid-body dynamics
+- robot constraints, primitive collision distances, and trajectory optimization
 - data adapters that produce trajectories for the mechanics core
 
 ## What Does Not Belong Yet

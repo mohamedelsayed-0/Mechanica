@@ -62,7 +62,8 @@ def so3_log(rotation: Tensor) -> Tensor:
          rotation[..., 1, 0] - rotation[..., 0, 1]),
         -1,
     )
-    scale = torch.where(theta.abs() < 1e-6, 0.5 + theta.square() / 12, theta / (2 * theta.sin()))
+    denominator = (2 * theta.sin()).clamp_min(torch.finfo(theta.dtype).eps)
+    scale = torch.where(theta.abs() < 1e-6, 0.5 + theta.square() / 12, theta / denominator)
     return scale.unsqueeze(-1) * vector
 
 
