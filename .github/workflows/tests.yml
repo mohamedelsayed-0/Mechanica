@@ -7,6 +7,7 @@ on:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -19,6 +20,8 @@ jobs:
         if: runner.os == 'Windows'
       - run: python -m pip install -e ".[dev,native]"
       - run: python setup_native.py build_ext --inplace
+        env:
+          DISTUTILS_USE_SDK: ${{ runner.os == 'Windows' && '1' || '0' }}
       - run: python -m pytest
         env:
           MECHANICA_TEST_NATIVE: "1"
