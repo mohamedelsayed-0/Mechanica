@@ -166,7 +166,8 @@ def inverse_dynamics_rnea_native(
     external_forces: Tensor | None = None,
 ) -> Tensor:
     """Evaluate batched RNEA through the registered native operator."""
-    _load_spring_extension()
+    if not torch.compiler.is_compiling():
+        _load_spring_extension()
     return torch.ops.mechanica.rnea(
         *_robot_dynamics_arguments(model), q, qdot, qddot, gravity, external_forces
     )
@@ -174,7 +175,8 @@ def inverse_dynamics_rnea_native(
 
 def mass_matrix_crba_native(model: Any, q: Tensor) -> Tensor:
     """Evaluate batched CRBA through the registered native operator."""
-    _load_spring_extension()
+    if not torch.compiler.is_compiling():
+        _load_spring_extension()
     return torch.ops.mechanica.crba(*_robot_dynamics_arguments(model), q)
 
 
@@ -186,7 +188,8 @@ def forward_dynamics_aba_native(
     gravity: Tensor,
 ) -> Tensor:
     """Evaluate batched ABA through the registered native operator."""
-    _load_spring_extension()
+    if not torch.compiler.is_compiling():
+        _load_spring_extension()
     return torch.ops.mechanica.aba(
         *_robot_dynamics_arguments(model), q, qdot, generalized_forces, gravity
     )

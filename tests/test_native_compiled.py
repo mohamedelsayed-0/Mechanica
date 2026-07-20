@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from mechanica import gravity_neighbor_list, hooke_spring_force
+from mechanica._native import native_kernels_available
 from mechanica.spatial import so3_exp
 from mechanica.rigid_body import (
     forward_dynamics_aba,
@@ -134,6 +135,7 @@ def test_native_rigid_body_ops_support_gradients_layouts_and_empty_batches() -> 
 
 
 def test_native_rnea_runs_under_torch_compile() -> None:
+    assert native_kernels_available()
     model = load_urdf(DYNAMICS_URDF)
     gravity = torch.tensor([0.0, 0.0, -9.80665], dtype=torch.float64)
 
