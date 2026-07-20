@@ -120,6 +120,27 @@ def gravity_neighbor_list_native(positions: Tensor, cutoff: float) -> Tensor:
     return _load_spring_extension().gravity_neighbor_list(positions, float(cutoff))
 
 
+def so3_exp_native(rotation_vector: Tensor) -> Tensor:
+    """Evaluate the registered batched SO(3) exponential operator."""
+    _load_spring_extension()
+    return torch.ops.mechanica.so3_exp(rotation_vector)
+
+
+def forward_kinematics_native(model: Any, q: Tensor) -> Tensor:
+    """Evaluate registered batched rigid-tree forward kinematics."""
+    _load_spring_extension()
+    return torch.ops.mechanica.forward_kinematics(
+        model.parents,
+        model.joint_types,
+        model.q_indices,
+        model.axes,
+        model.joint_origins,
+        model.multipliers,
+        model.offsets,
+        q,
+    )
+
+
 def native_kernels_status() -> tuple[bool, str | None]:
     """Return whether the optional native extension can be loaded."""
     try:

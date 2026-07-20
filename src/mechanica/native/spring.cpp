@@ -32,6 +32,81 @@ torch::Tensor expand_to_length_rank(torch::Tensor value, const torch::Tensor& le
 
 }  // namespace
 
+torch::Tensor skew3(torch::Tensor vector) {
+    check_shape(vector.size(-1) == 3, "vector must end in dimension 3");
+    auto components = vector.unbind(-1);
+    auto zero = torch::zeros_like(components[0]);
+    auto shape = vector.sizes().vec();
+    shape.push_back(3);
+    return torch::stack({
+        zero, -components[2], components[1],
+        components[2], zero, -components[0],
+        -components[1], components[0], zero}, -1).reshape(shape);
+}
+
+torch::Tensor so3_exp_kernel(torch::Tensor rotation_vector) {
+    check_shape(rotation_vector.size(-1) == 3, "rotation_vector must end in dimension 3");
+    auto theta2 = rotation_vector.square().sum(-1, true);
+    auto safe = theta2.clamp_min(dtype_epsilon(rotation_vector));
+    auto theta = safe.sqrt();
+    auto small = theta2 < 1e-8;
+    auto a = torch::where(
+        small, 1 - theta2 / 6 + theta2.square() / 120, theta.sin() / theta);
+    auto b = torch::where(
+        small, 0.5 - theta2 / 24 + theta2.square() / 720, (1 - theta.cos()) / safe);
+    auto matrix = skew3(rotation_vector);
+    auto identity = torch::eye(3, rotation_vector.options());
+    return identity + a.unsqueeze(-1) * matrix + b.unsqueeze(-1) * matrix.matmul(matrix);
+}
+
+torch::Tensor make_transform(torch::Tensor rotation, torch::Tensor translation) {
+    auto top = torch::cat({rotation, translation.unsqueeze(-1)}, -1);
+    auto bottom = torch::zeros({rotation.size(0), 1, 4}, rotation.options());
+    bottom.index_put_({Slice(), 0, 3}, 1);
+    return torch::cat({top, bottom}, -2);
+}
+
+torch::Tensor forward_kinematics_kernel(
+    torch::Tensor parents,
+    torch::Tensor joint_types,
+    torch::Tensor q_indices,
+    torch::Tensor axes,
+    torch::Tensor origins,
+    torch::Tensor multipliers,
+    torch::Tensor offsets,
+    torch::Tensor q) {
+    check_shape(q.dim() >= 1, "q must have at least one dimension");
+    const auto links = parents.numel();
+    const auto batches = q.numel() / q.size(-1);
+    auto flat_q = q.reshape({batches, q.size(-1)});
+    axes = axes.to(q.options());
+    origins = origins.to(q.options());
+    multipliers = multipliers.to(q.options());
+    offsets = offsets.to(q.options());
+    std::vector<torch::Tensor> world;
+    world.reserve(links);
+    for (int64_t link = 0; link < links; ++link) {
+        const auto coordinate = q_indices[link].item<int64_t>();
+        auto motion = torch::eye(4, q.options()).expand({batches, 4, 4});
+        if (coordinate >= 0) {
+            auto value = multipliers[link] * flat_q.index({Slice(), coordinate}) + offsets[link];
+            auto axis = axes[link].expand({batches, 3});
+            if (joint_types[link].item<int64_t>() == 2) {
+                auto rotation = torch::eye(3, q.options()).expand({batches, 3, 3});
+                motion = make_transform(rotation, axis * value.unsqueeze(-1));
+            } else {
+                motion = make_transform(so3_exp_kernel(axis * value.unsqueeze(-1)), torch::zeros_like(axis));
+            }
+        }
+        auto local = origins[link].unsqueeze(0).matmul(motion);
+        const auto parent = parents[link].item<int64_t>();
+        world.push_back(parent < 0 ? local : world[parent].matmul(local));
+    }
+    auto shape = q.sizes().slice(0, q.dim() - 1).vec();
+    shape.insert(shape.end(), {links, 4, 4});
+    return torch::stack(world, 1).reshape(shape);
+}
+
 torch::Tensor hooke_spring_force(
     torch::Tensor positions,
     torch::Tensor edges,
@@ -180,6 +255,8 @@ torch::Tensor pairwise_gravity_force(
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+    m.def("so3_exp", &so3_exp_kernel, "Batched SO(3) exponential map");
+    m.def("forward_kinematics", &forward_kinematics_kernel, "Batched tree kinematics");
     m.def(
         "hooke_spring_force",
         &hooke_spring_force,
@@ -189,4 +266,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         &pairwise_gravity_force,
         "Pairwise gravitational forces for particle systems");
     m.def("gravity_neighbor_list", &gravity_neighbor_list, "Cutoff neighbor pairs");
+}
+
+TORCH_LIBRARY(mechanica, m) {
+    m.def("so3_exp(Tensor rotation_vector) -> Tensor");
+    m.def("forward_kinematics(Tensor parents, Tensor joint_types, Tensor q_indices, Tensor axes, Tensor origins, Tensor multipliers, Tensor offsets, Tensor q) -> Tensor");
+}
+
+TORCH_LIBRARY_IMPL(mechanica, CompositeImplicitAutograd, m) {
+    m.impl("so3_exp", &so3_exp_kernel);
+    m.impl("forward_kinematics", &forward_kinematics_kernel);
 }
