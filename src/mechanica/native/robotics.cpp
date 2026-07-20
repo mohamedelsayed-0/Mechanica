@@ -18,7 +18,7 @@ Tensor matvec(const Tensor& matrix, const Tensor& vector) {
     return matrix.matmul(vector.unsqueeze(-1)).squeeze(-1);
 }
 
-Tensor dot(const Tensor& left, const Tensor& right) {
+Tensor batch_dot(const Tensor& left, const Tensor& right) {
     return (left * right).sum(-1);
 }
 
@@ -225,7 +225,7 @@ Tensor rnea_impl(
         const auto coordinate = tree.coordinates[link];
         if (coordinate >= 0) {
             generalized[coordinate] = generalized[coordinate] +
-                dot(terms.subspaces[link].unsqueeze(0), forces[link]);
+                batch_dot(terms.subspaces[link].unsqueeze(0), forces[link]);
         }
         const auto parent = tree.parents[link];
         if (parent >= 0) {
@@ -261,7 +261,7 @@ Tensor crba_impl(
         if (coordinate >= 0) {
             auto force = matvec(composite[link], terms.subspaces[link].unsqueeze(0).expand({batches, 6}));
             auto diagonal = matrix.index({Slice(), coordinate, coordinate}) +
-                dot(terms.subspaces[link].unsqueeze(0), force);
+                batch_dot(terms.subspaces[link].unsqueeze(0), force);
             matrix.index_put_({Slice(), coordinate, coordinate}, diagonal);
             auto child = link;
             auto ancestor = tree.parents[child];
@@ -269,7 +269,7 @@ Tensor crba_impl(
                 force = matvec(terms.transforms[child].transpose(-1, -2), force);
                 const auto other = tree.coordinates[ancestor];
                 if (other >= 0) {
-                    auto value = dot(terms.subspaces[ancestor].unsqueeze(0), force);
+                    auto value = batch_dot(terms.subspaces[ancestor].unsqueeze(0), force);
                     if (other == coordinate) {
                         matrix.index_put_({Slice(), coordinate, coordinate},
                             matrix.index({Slice(), coordinate, coordinate}) + 2 * value);
@@ -372,8 +372,9 @@ Tensor native_aba(
         if (coordinate >= 0) {
             auto subspace = terms.subspaces[link].unsqueeze(0).expand({batches, 6});
             capital_u[link] = matvec(articulated[link], subspace);
-            d[link] = dot(subspace, capital_u[link]);
-            u[link] = flat_forces.index({Slice(), coordinate}) - dot(subspace, bias_forces[link]);
+            d[link] = batch_dot(subspace, capital_u[link]);
+            u[link] = flat_forces.index({Slice(), coordinate}) -
+                batch_dot(subspace, bias_forces[link]);
             reduced_inertia = articulated[link] - capital_u[link].unsqueeze(-1)
                 .matmul(capital_u[link].unsqueeze(-2)) / d[link].reshape({batches, 1, 1});
             reduced_bias = bias_forces[link] + matvec(reduced_inertia, bias_accelerations[link]) +
@@ -398,7 +399,8 @@ Tensor native_aba(
             bias_accelerations[link];
         const auto coordinate = tree.coordinates[link];
         if (coordinate >= 0) {
-            result[coordinate] = (u[link] - dot(capital_u[link], acceleration)) / d[link];
+            result[coordinate] =
+                (u[link] - batch_dot(capital_u[link], acceleration)) / d[link];
             acceleration = acceleration + terms.subspaces[link].unsqueeze(0) *
                 result[coordinate].unsqueeze(-1);
         }
